@@ -1,0 +1,27 @@
+# Build output
+/build/
+build/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+
+# Compiled objects / binaries
+*.o
+*.obj
+*.a
+*.exe
+
+# Database files produced at runtime
+*.db
+*.wal
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
