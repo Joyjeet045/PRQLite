@@ -9,37 +9,39 @@ namespace db::parser {
 namespace {
 
 // Case-insensitive keyword lookup table (keys are uppercased identifiers).
+// PRQLite uses its own keyword vocabulary instead of SQL's; the internal
+// TokenType names still read like SQL for familiarity, but the accepted source
+// keywords are the PRQLite words below. See docs/grammar.txt for the mapping.
 const std::unordered_map<std::string, TokenType>& keywordTable() {
     static const std::unordered_map<std::string, TokenType> table = {
-        {"SELECT", TokenType::SELECT},   {"FROM", TokenType::FROM},
-        {"WHERE", TokenType::WHERE},     {"INSERT", TokenType::INSERT},
+        {"FETCH", TokenType::SELECT},    {"FROM", TokenType::FROM},
+        {"WHEN", TokenType::WHERE},      {"PUT", TokenType::INSERT},
         {"INTO", TokenType::INTO},       {"VALUES", TokenType::VALUES},
-        {"CREATE", TokenType::CREATE},   {"TABLE", TokenType::TABLE},
+        {"BUILD", TokenType::CREATE},    {"RELATION", TokenType::TABLE},
         {"INDEX", TokenType::INDEX},     {"ON", TokenType::ON},
-        {"DELETE", TokenType::DELETE},   {"AND", TokenType::AND},
+        {"REMOVE", TokenType::DELETE},   {"AND", TokenType::AND},
         {"OR", TokenType::OR},           {"NOT", TokenType::NOT},
         {"INT", TokenType::INT_TYPE},    {"INTEGER", TokenType::INT_TYPE},
         {"BOOL", TokenType::BOOL_TYPE},  {"BOOLEAN", TokenType::BOOL_TYPE},
         {"TEXT", TokenType::TEXT_TYPE},  {"VARCHAR", TokenType::VARCHAR},
         {"TRUE", TokenType::TRUE},       {"FALSE", TokenType::FALSE},
-        {"UPDATE", TokenType::UPDATE},   {"SET", TokenType::SET},
-        {"DROP", TokenType::DROP},       {"ORDER", TokenType::ORDER},
+        {"MODIFY", TokenType::UPDATE},   {"SET", TokenType::SET},
+        {"DISCARD", TokenType::DROP},    {"SORT", TokenType::ORDER},
         {"BY", TokenType::BY},           {"GROUP", TokenType::GROUP},
-        {"HAVING", TokenType::HAVING},   {"LIMIT", TokenType::LIMIT},
+        {"HAVING", TokenType::HAVING},   {"TAKE", TokenType::LIMIT},
         {"AS", TokenType::AS},           {"ASC", TokenType::ASC},
-        {"DESC", TokenType::DESC},       {"JOIN", TokenType::JOIN},
-        {"INNER", TokenType::INNER},     {"IS", TokenType::IS},
+        {"DESC", TokenType::DESC},       {"LINK", TokenType::JOIN},
+        {"IS", TokenType::IS},
         {"IN", TokenType::IN},           {"BETWEEN", TokenType::BETWEEN},
         {"LIKE", TokenType::LIKE},       {"NULL", TokenType::NULL_LITERAL},
-        {"BEGIN", TokenType::BEGIN},     {"COMMIT", TokenType::COMMIT},
-        {"ROLLBACK", TokenType::ROLLBACK},
-        {"TRANSACTION", TokenType::TRANSACTION},
-        {"ALTER", TokenType::ALTER},     {"ADD", TokenType::ADD},
+        {"START", TokenType::BEGIN},     {"SAVE", TokenType::COMMIT},
+        {"UNDO", TokenType::ROLLBACK},
+        {"RESHAPE", TokenType::ALTER},   {"ADD", TokenType::ADD},
         {"COLUMN", TokenType::COLUMN},   {"REFERENCES", TokenType::REFERENCES},
         {"FOREIGN", TokenType::FOREIGN}, {"KEY", TokenType::KEY},
         {"PRIMARY", TokenType::PRIMARY}, {"UNIQUE", TokenType::UNIQUE},
         {"DEFAULT", TokenType::DEFAULT}, {"CHECK", TokenType::CHECK},
-        {"DISTINCT", TokenType::DISTINCT},
+        {"UNIQUEONLY", TokenType::DISTINCT},
         {"EXISTS", TokenType::EXISTS},
     };
     return table;

@@ -496,7 +496,7 @@ void ExecutorEngine::visit(parser::CreateStatement& node) {
             }
         }
     }
-    result_.message = "CREATE TABLE";
+    result_.message = "BUILD RELATION";
 }
 
 void ExecutorEngine::visit(parser::CreateIdxStatement& node) {
@@ -517,7 +517,7 @@ void ExecutorEngine::visit(parser::CreateIdxStatement& node) {
             }
         }
     }
-    result_.message = "CREATE INDEX";
+    result_.message = "BUILD INDEX";
 }
 
 void ExecutorEngine::visit(parser::InsertStatement& node) {
@@ -584,7 +584,7 @@ void ExecutorEngine::visit(parser::InsertStatement& node) {
         }
         ++count;
     }
-    result_.message = "INSERT 0 " + std::to_string(count);
+    result_.message = "PUT 0 " + std::to_string(count);
 }
 
 void ExecutorEngine::visit(parser::SelectStatement& node) {
@@ -845,7 +845,7 @@ void ExecutorEngine::visit(parser::DeleteStatement& node) {
         }
         storage_.tables().eraseTuple(node.tableId, vrid);
     }
-    result_.message = "DELETE " + std::to_string(victims.size());
+    result_.message = "REMOVE " + std::to_string(victims.size());
 }
 
 void ExecutorEngine::visit(parser::UpdateStatement& node) {
@@ -910,17 +910,17 @@ void ExecutorEngine::visit(parser::UpdateStatement& node) {
         }
         ++count;
     }
-    result_.message = "UPDATE " + std::to_string(count);
+    result_.message = "MODIFY " + std::to_string(count);
 }
 
 void ExecutorEngine::visit(parser::DropStatement& node) {
     if (node.isIndex) {
         storage_.indexes().drop(node.name);
-        result_.message = "DROP INDEX";
+        result_.message = "DISCARD INDEX";
     } else {
         storage_.tables().dropTable(node.tableId);
         storage_.indexes().dropTable(node.tableId);
-        result_.message = "DROP TABLE";
+        result_.message = "DISCARD RELATION";
     }
 }
 
@@ -970,10 +970,10 @@ void ExecutorEngine::visit(parser::AlterStatement& node) {
                                    static_cast<int>(newSchema.size()) - 1,
                                    node.column.refTable, node.column.refColumn);
         }
-        result_.message = "ALTER TABLE (ADD COLUMN)";
+        result_.message = "RESHAPE RELATION (ADD COLUMN)";
     } else {
         catalog_.dropColumn(node.table, node.dropColumn);
-        result_.message = "ALTER TABLE (DROP COLUMN)";
+        result_.message = "RESHAPE RELATION (DISCARD COLUMN)";
     }
 }
 
@@ -988,7 +988,7 @@ void ExecutorEngine::visit(parser::TransactionStatement& node) {
                 result_.message = "WARNING: already in a transaction";
             } else {
                 *currentTxn_ = txnMgr_->begin();
-                result_.message = "BEGIN";
+                result_.message = "START";
             }
             break;
         case parser::TransactionStatement::Kind::Commit:
@@ -997,7 +997,7 @@ void ExecutorEngine::visit(parser::TransactionStatement& node) {
             } else {
                 txnMgr_->commit(*currentTxn_);
                 *currentTxn_ = 0;
-                result_.message = "COMMIT";
+                result_.message = "SAVE";
             }
             break;
         case parser::TransactionStatement::Kind::Rollback:
@@ -1006,7 +1006,7 @@ void ExecutorEngine::visit(parser::TransactionStatement& node) {
             } else {
                 txnMgr_->rollback(*currentTxn_);
                 *currentTxn_ = 0;
-                result_.message = "ROLLBACK";
+                result_.message = "UNDO";
             }
             break;
     }

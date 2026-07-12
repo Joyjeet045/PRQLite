@@ -375,7 +375,8 @@ void DB::run() {
     const std::string continuationPrompt = "prqlite-# ";
 
     std::cout << "PRQLite 0.1.0 - a relational database from scratch.\n";
-    std::cout << "Type SQL terminated by ';'. Use \\q to quit, \\h for help.\n\n";
+    std::cout << "Speaks the PRQLite query language (not SQL). Terminate statements\n";
+    std::cout << "with ';'. Use \\q to quit, \\h for help.\n\n";
 
     std::string buffer;
     std::string line;
@@ -391,12 +392,14 @@ void DB::run() {
                 break;
             }
             if (trimmed == "\\h") {
-                std::cout << "SQL: CREATE/DROP TABLE, CREATE/DROP INDEX, INSERT, SELECT,\n"
-                             "     UPDATE, DELETE. SELECT supports WHERE (=,!=,<,<=,>,>=,\n"
-                             "     AND/OR/NOT, IS [NOT] NULL, [NOT] IN, BETWEEN, LIKE),\n"
-                             "     INNER JOIN ... ON, GROUP BY/HAVING, aggregates\n"
-                             "     (COUNT/SUM/AVG/MIN/MAX), ORDER BY, LIMIT.\n"
-                             "Txns: BEGIN, COMMIT, ROLLBACK.\n"
+                std::cout << "PRQLite language (not SQL):\n"
+                             "  BUILD RELATION / BUILD INDEX, DISCARD RELATION / DISCARD INDEX\n"
+                             "  PUT INTO, FETCH, MODIFY, REMOVE, RESHAPE RELATION\n"
+                             "  FETCH supports WHEN (=,!=,<,<=,>,>=, AND/OR/NOT,\n"
+                             "    IS [NOT] NULL, [NOT] IN, BETWEEN, LIKE), LINK ... ON,\n"
+                             "    GROUP BY/HAVING, aggregates (COUNT/SUM/AVG/MIN/MAX),\n"
+                             "    UNIQUEONLY, SORT BY, TAKE.\n"
+                             "  Transactions: START, SAVE, UNDO.\n"
                              "  \\q  quit\n"
                              "  \\h  help\n";
             } else {

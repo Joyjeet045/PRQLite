@@ -162,7 +162,7 @@ ASTNodePtr Parser::parseStatement() {
         case TokenType::COMMIT:
         case TokenType::ROLLBACK: stmt = parseTransaction(); break;
         default:
-            error(t, "expected a statement (CREATE, INSERT, SELECT, DELETE, UPDATE, DROP, BEGIN, COMMIT, or ROLLBACK)");
+            error(t, "expected a statement (BUILD, PUT, FETCH, REMOVE, MODIFY, DISCARD, START, SAVE, or UNDO)");
     }
 
     match(TokenType::SEMICOLON);  // trailing ';' is optional
@@ -210,7 +210,7 @@ ASTNodePtr Parser::parseCreate() {
         return stmt;
     }
 
-    error(peek(), "expected TABLE or INDEX after CREATE");
+    error(peek(), "expected RELATION or INDEX after BUILD");
 }
 
 ColumnDefinition Parser::parseColumnDefinition() {
@@ -454,7 +454,7 @@ ASTNodePtr Parser::parseDrop() {
         stmt->isIndex = true;
         stmt->name = consume(TokenType::IDENTIFIER, "index name").lexeme;
     } else {
-        error(peek(), "expected TABLE or INDEX after DROP");
+        error(peek(), "expected RELATION or INDEX after DISCARD");
     }
     return stmt;
 }
@@ -473,7 +473,7 @@ ASTNodePtr Parser::parseAlter() {
         stmt->kind = AlterStatement::Kind::DropColumn;
         stmt->dropColumn = consume(TokenType::IDENTIFIER, "column name").lexeme;
     } else {
-        error(peek(), "expected ADD or DROP after ALTER TABLE <name>");
+        error(peek(), "expected ADD or DISCARD after RESHAPE RELATION <name>");
     }
     return stmt;
 }
@@ -499,7 +499,7 @@ ASTNodePtr Parser::parseTransaction() {
             stmt->kind = TransactionStatement::Kind::Rollback;
             break;
         default:
-            error(t, "expected BEGIN, COMMIT, or ROLLBACK");
+            error(t, "expected START, SAVE, or UNDO");
     }
     return stmt;
 }
