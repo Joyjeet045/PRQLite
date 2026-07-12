@@ -1,0 +1,602 @@
+#include "frontend/semantic_analyzer.hpp"
+
+#include <string>
+#include <unordered_set>
+#include <vector>
+
+namespace db::semantic {
+
+using parser::DataType;
+using parser::LiteralExpr;
+
+namespace {
+
+bool isStringType(DataType type) {
+    return type == DataType::Text || type == DataType::Varchar;
+}
+
+// Two operands are comparable when they belong to the same family: numeric
+// with numeric, boolean with boolean, or any string type with any string type.
+bool comparable(DataType a, DataType b) {
+    if (isStringType(a) && isStringType(b)) {
+        return true;
+    }
+    return a == b;
+}
+
+// Whether a literal of kind `k` may be stored in a column of type `col`.
+bool literalMatchesColumn(LiteralExpr::Kind k, DataType col) {
+    switch (k) {
+        case LiteralExpr::Kind::Integer: return col == DataType::Int;
+        case LiteralExpr::Kind::Boolean: return col == DataType::Bool;
+        case LiteralExpr::Kind::String: return isStringType(col);
+        case LiteralExpr::Kind::Null: return true;  // NULL fits any column
+    }
+    return false;
+}
+
+// Whether a DEFAULT literal (CachedValue) fits a column of type `col`.
+bool defaultMatchesColumn(const parser::CachedValue& v, DataType col) {
+    switch (v.kind) {
+        case parser::CachedValue::Kind::Int: return col == DataType::Int;
+        case parser::CachedValue::Kind::Bool: return col == DataType::Bool;
+        case parser::CachedValue::Kind::Text: return isStringType(col);
+        case parser::CachedValue::Kind::Null: return true;
+    }
+    return false;
+}
+
+std::string typeName(DataType type) {
+    return std::string(parser::dataTypeName(type));
+}
+
+}  // namespace
+
+SemanticError::SemanticError(const std::string& message)
+    : std::runtime_error(message) {}
+
+SemanticAnalyzer::SemanticAnalyzer(Catalog& catalog) : catalog_(catalog) {}
+
+void SemanticAnalyzer::analyze(parser::ASTNode& node) { node.accept(*this); }
+
+void SemanticAnalyzer::bindExpression(parser::Expression& expr,
+                                      const std::string& tableName) {
+    const TableSchema* table = catalog_.getTable(tableName);
+    if (table == nullptr) {
+        throw SemanticError("unknown table '" + tableName + "' for CHECK");
+    }
+    const TableSchema* saved = currentTable_;
+    currentTable_ = table;
+    checkPredicate(expr);
+    currentTable_ = saved;
+}
+
+// ---------------------------------------------------------------------------
+// Expressions
+// ---------------------------------------------------------------------------
+
+void SemanticAnalyzer::visit(parser::LiteralExpr& node) {
+    switch (node.kind) {
+        case LiteralExpr::Kind::Integer: node.resolvedType = DataType::Int; break;
+        case LiteralExpr::Kind::String: node.resolvedType = DataType::Text; break;
+        case LiteralExpr::Kind::Boolean: node.resolvedType = DataType::Bool; break;
+        case LiteralExpr::Kind::Null: node.resolvedType = std::nullopt; break;
+    }
+}
+
+void SemanticAnalyzer::visit(parser::ColumnRef& node) {
+    if (joinMode_) {
+        // Resolve against the two joined tables, honoring qualifiers.
+        if (!node.table.empty()) {
+            if (node.table == leftTable_->name) {
+                int idx = leftTable_->columnIndex(node.column);
+                if (idx < 0) throw SemanticError("unknown column '" + node.column +
+                                                 "' in table '" + leftTable_->name + "'");
+                node.columnIndex = idx;
+                node.resolvedType = leftTable_->columns[idx].type;
+                return;
+            }
+            if (node.table == rightTable_->name) {
+                int idx = rightTable_->columnIndex(node.column);
+                if (idx < 0) throw SemanticError("unknown column '" + node.column +
+                                                 "' in table '" + rightTable_->name + "'");
+                node.columnIndex = leftColumnCount_ + idx;
+                node.resolvedType = rightTable_->columns[idx].type;
+                return;
+            }
+            throw SemanticError("unknown table qualifier '" + node.table + "'");
+        }
+        int li = leftTable_->columnIndex(node.column);
+        int ri = rightTable_->columnIndex(node.column);
+        if (li >= 0 && ri >= 0) {
+            throw SemanticError("ambiguous column '" + node.column + "'");
+        }
+        if (li >= 0) {
+            node.columnIndex = li;
+            node.resolvedType = leftTable_->columns[li].type;
+            return;
+        }
+        if (ri >= 0) {
+            node.columnIndex = leftColumnCount_ + ri;
+            node.resolvedType = rightTable_->columns[ri].type;
+            return;
+        }
+        throw SemanticError("unknown column '" + node.column + "'");
+    }
+
+    if (currentTable_ == nullptr) {
+        throw SemanticError("column reference '" + node.column +
+                            "' has no table in scope");
+    }
+    if (!node.table.empty() && node.table != currentTable_->name) {
+        throw SemanticError("unknown table qualifier '" + node.table +
+                            "' (expected '" + currentTable_->name + "')");
+    }
+    int idx = currentTable_->columnIndex(node.column);
+    if (idx < 0) {
+        throw SemanticError("unknown column '" + node.column + "' in table '" +
+                            currentTable_->name + "'");
+    }
+    node.columnIndex = idx;
+    node.resolvedType = currentTable_->columns[idx].type;
+}
+
+void SemanticAnalyzer::visit(parser::BinaryExpr& node) {
+    node.left->accept(*this);
+    node.right->accept(*this);
+    if (node.left->resolvedType && node.right->resolvedType) {
+        DataType lt = *node.left->resolvedType;
+        DataType rt = *node.right->resolvedType;
+        if (!comparable(lt, rt)) {
+            throw SemanticError("type mismatch in comparison: " + typeName(lt) +
+                                " vs " + typeName(rt));
+        }
+    }
+    node.resolvedType = DataType::Bool;
+}
+
+void SemanticAnalyzer::visit(parser::LogicalExpr& node) {
+    node.left->accept(*this);
+    node.right->accept(*this);
+    if (node.left->resolvedType != DataType::Bool ||
+        node.right->resolvedType != DataType::Bool) {
+        throw SemanticError("operands of AND/OR must be boolean expressions");
+    }
+    node.resolvedType = DataType::Bool;
+}
+
+void SemanticAnalyzer::visit(parser::UnaryExpr& node) {
+    node.operand->accept(*this);
+    if (node.operand->resolvedType != DataType::Bool) {
+        throw SemanticError("operand of NOT must be a boolean expression");
+    }
+    node.resolvedType = DataType::Bool;
+}
+
+void SemanticAnalyzer::visit(parser::IsNullExpr& node) {
+    node.operand->accept(*this);
+    node.resolvedType = DataType::Bool;
+}
+
+void SemanticAnalyzer::visit(parser::InExpr& node) {
+    node.value->accept(*this);
+    if (node.subquery) {
+        node.subquery->accept(*this);
+        node.resolvedType = DataType::Bool;
+        return;
+    }
+    for (auto& item : node.items) {
+        item->accept(*this);
+        if (node.value->resolvedType && item->resolvedType &&
+            !comparable(*node.value->resolvedType, *item->resolvedType)) {
+            throw SemanticError("type mismatch in IN list");
+        }
+    }
+    node.resolvedType = DataType::Bool;
+}
+
+void SemanticAnalyzer::visit(parser::BetweenExpr& node) {
+    node.value->accept(*this);
+    node.lo->accept(*this);
+    node.hi->accept(*this);
+    node.resolvedType = DataType::Bool;
+}
+
+void SemanticAnalyzer::visit(parser::LikeExpr& node) {
+    node.value->accept(*this);
+    node.pattern->accept(*this);
+    if (node.value->resolvedType && !isStringType(*node.value->resolvedType)) {
+        throw SemanticError("LIKE requires a text operand");
+    }
+    node.resolvedType = DataType::Bool;
+}
+
+void SemanticAnalyzer::visit(parser::FunctionExpr& node) {
+    const std::string& fn = node.name;
+    if (fn != "COUNT" && fn != "SUM" && fn != "AVG" && fn != "MIN" && fn != "MAX") {
+        throw SemanticError("unknown aggregate function '" + fn + "'");
+    }
+    if (node.star) {
+        if (fn != "COUNT") {
+            throw SemanticError(fn + "(*) is not allowed");
+        }
+        node.resolvedType = DataType::Int;
+        return;
+    }
+    if (!node.argument) {
+        throw SemanticError(fn + " requires an argument");
+    }
+    node.argument->accept(*this);
+    DataType at = node.argument->resolvedType.value_or(DataType::Int);
+    if ((fn == "SUM" || fn == "AVG") && at != DataType::Int) {
+        throw SemanticError(fn + " requires a numeric column");
+    }
+    node.resolvedType = (fn == "MIN" || fn == "MAX") ? at : DataType::Int;
+}
+
+void SemanticAnalyzer::visit(parser::SubqueryExpr& node) {
+    // Analyze the inner query in its own scope, then restore ours.
+    const TableSchema* savedTable = currentTable_;
+    const TableSchema* savedLeft = leftTable_;
+    const TableSchema* savedRight = rightTable_;
+    int savedLeftCount = leftColumnCount_;
+    bool savedJoin = joinMode_;
+    currentTable_ = nullptr;
+    leftTable_ = nullptr;
+    rightTable_ = nullptr;
+    joinMode_ = false;
+
+    node.query->accept(*this);
+
+    currentTable_ = savedTable;
+    leftTable_ = savedLeft;
+    rightTable_ = savedRight;
+    leftColumnCount_ = savedLeftCount;
+    joinMode_ = savedJoin;
+
+    // EXISTS is boolean; a scalar subquery's type is left unresolved (treated
+    // like NULL for type checking, so comparisons against it are permitted).
+    node.resolvedType =
+        (node.kind == parser::SubqueryExpr::Kind::Exists) ? std::optional<DataType>(DataType::Bool)
+                                                          : std::nullopt;
+}
+
+// ---------------------------------------------------------------------------
+// Statements
+// ---------------------------------------------------------------------------
+
+void SemanticAnalyzer::visit(parser::CreateStatement& node) {
+    if (catalog_.hasTable(node.table)) {
+        throw SemanticError("table '" + node.table + "' already exists");
+    }
+
+    std::unordered_set<std::string> seen;
+    std::vector<ColumnSchema> columns;
+    columns.reserve(node.columns.size());
+    bool sawPrimaryKey = false;
+    for (const auto& def : node.columns) {
+        if (!seen.insert(def.name).second) {
+            throw SemanticError("duplicate column '" + def.name +
+                                "' in table '" + node.table + "'");
+        }
+        if (def.type == DataType::Varchar && def.varcharLength <= 0) {
+            throw SemanticError("VARCHAR length must be positive for column '" +
+                                def.name + "'");
+        }
+        if (def.primaryKey) {
+            if (sawPrimaryKey) {
+                throw SemanticError("table '" + node.table +
+                                    "' has more than one PRIMARY KEY");
+            }
+            sawPrimaryKey = true;
+        }
+        if (def.hasDefault && !defaultMatchesColumn(def.defaultValue, def.type)) {
+            throw SemanticError("DEFAULT value type mismatch for column '" +
+                                def.name + "'");
+        }
+        if ((def.notNull || def.primaryKey) && def.hasDefault &&
+            def.defaultValue.kind == parser::CachedValue::Kind::Null) {
+            throw SemanticError("column '" + def.name +
+                                "' is NOT NULL but has a NULL default");
+        }
+
+        ColumnSchema cs;
+        cs.name = def.name;
+        cs.type = def.type;
+        cs.varcharLength = def.varcharLength;
+        cs.notNull = def.notNull || def.primaryKey;
+        cs.primaryKey = def.primaryKey;
+        cs.unique = def.unique || def.primaryKey;
+        cs.hasDefault = def.hasDefault;
+        cs.defaultValue = def.defaultValue;
+        cs.checkExpr = def.checkExpr;
+        if (def.checkExpr) {
+            cs.checkSource = parser::expressionToString(*def.checkExpr);
+        }
+        columns.push_back(std::move(cs));
+    }
+
+    int id = -1;
+    catalog_.createTable(node.table, columns, id);
+    node.tableId = id;
+
+    // Register inline foreign keys after the table exists.
+    for (std::size_t i = 0; i < node.columns.size(); ++i) {
+        const auto& def = node.columns[i];
+        if (def.refTable.empty()) continue;
+        const TableSchema* parent = catalog_.getTable(def.refTable);
+        if (parent == nullptr) {
+            throw SemanticError("foreign key references unknown table '" +
+                                def.refTable + "'");
+        }
+        int pidx = parent->columnIndex(def.refColumn);
+        if (pidx < 0) {
+            throw SemanticError("foreign key references unknown column '" +
+                                def.refColumn + "' in table '" + def.refTable + "'");
+        }
+        if (!comparable(def.type, parent->columns[pidx].type)) {
+            throw SemanticError("foreign key type mismatch for column '" +
+                                def.name + "'");
+        }
+        catalog_.addForeignKey(node.table, static_cast<int>(i), def.refTable,
+                               def.refColumn);
+    }
+
+    // Bind CHECK expressions against the now-registered table (the catalog's
+    // column copies share these expression objects, so this binds them too).
+    for (const auto& def : node.columns) {
+        if (def.checkExpr) {
+            bindExpression(*def.checkExpr, node.table);
+        }
+    }
+}
+
+void SemanticAnalyzer::visit(parser::CreateIdxStatement& node) {
+    const TableSchema* table = catalog_.getTable(node.table);
+    if (table == nullptr) {
+        throw SemanticError("unknown table '" + node.table + "'");
+    }
+    int idx = table->columnIndex(node.column);
+    if (idx < 0) {
+        throw SemanticError("unknown column '" + node.column + "' in table '" +
+                            node.table + "'");
+    }
+    if (catalog_.hasIndex(node.indexName)) {
+        throw SemanticError("index '" + node.indexName + "' already exists");
+    }
+    catalog_.createIndex(node.indexName, node.table, node.column);
+    node.tableId = table->tableId;
+    node.columnIndex = idx;
+}
+
+void SemanticAnalyzer::visit(parser::InsertStatement& node) {
+    const TableSchema* table = catalog_.getTable(node.table);
+    if (table == nullptr) {
+        throw SemanticError("unknown table '" + node.table + "'");
+    }
+    currentTable_ = table;
+    node.tableId = table->tableId;
+
+    // Resolve the target column list (explicit list, or all columns in order).
+    std::vector<int> targets;
+    if (node.columns.empty()) {
+        for (int i = 0; i < static_cast<int>(table->columns.size()); ++i) {
+            targets.push_back(i);
+        }
+    } else {
+        std::unordered_set<std::string> seen;
+        for (const auto& name : node.columns) {
+            if (!seen.insert(name).second) {
+                throw SemanticError("duplicate column '" + name + "' in INSERT");
+            }
+            int idx = table->columnIndex(name);
+            if (idx < 0) {
+                throw SemanticError("unknown column '" + name + "' in table '" +
+                                    node.table + "'");
+            }
+            targets.push_back(idx);
+        }
+    }
+
+    for (auto& row : node.rows) {
+        if (row.size() != targets.size()) {
+            throw SemanticError("INSERT has " + std::to_string(row.size()) +
+                                " value(s) but " + std::to_string(targets.size()) +
+                                " target column(s)");
+        }
+        for (std::size_t i = 0; i < row.size(); ++i) {
+            row[i]->accept(*this);
+            auto* lit = dynamic_cast<LiteralExpr*>(row[i].get());
+            if (lit == nullptr) {
+                throw SemanticError("INSERT values must be literals");
+            }
+            const ColumnSchema& col = table->columns[targets[i]];
+            if (!literalMatchesColumn(lit->kind, col.type)) {
+                throw SemanticError("type mismatch for column '" + col.name +
+                                    "': expected " + typeName(col.type));
+            }
+        }
+    }
+
+    currentTable_ = nullptr;
+}
+
+void SemanticAnalyzer::visit(parser::SelectStatement& node) {
+    if (!node.joinTable.empty()) {
+        const TableSchema* left = catalog_.getTable(node.table);
+        if (left == nullptr) throw SemanticError("unknown table '" + node.table + "'");
+        const TableSchema* right = catalog_.getTable(node.joinTable);
+        if (right == nullptr) {
+            throw SemanticError("unknown table '" + node.joinTable + "'");
+        }
+        if (!node.aggregates.empty()) {
+            throw SemanticError("aggregates are not supported with JOIN");
+        }
+        node.tableId = left->tableId;
+        node.joinTableId = right->tableId;
+        joinMode_ = true;
+        leftTable_ = left;
+        rightTable_ = right;
+        leftColumnCount_ = static_cast<int>(left->columns.size());
+        if (!node.selectStar) {
+            for (auto& col : node.columns) col->accept(*this);
+        }
+        for (auto& key : node.orderBy) key.column->accept(*this);
+        if (node.joinOn) {
+            node.joinOn->accept(*this);
+            if (node.joinOn->resolvedType != DataType::Bool) {
+                throw SemanticError("JOIN ON must be a boolean expression");
+            }
+        }
+        if (node.where) {
+            node.where->accept(*this);
+            if (node.where->resolvedType != DataType::Bool) {
+                throw SemanticError("WHERE clause must be a boolean expression");
+            }
+        }
+        joinMode_ = false;
+        leftTable_ = nullptr;
+        rightTable_ = nullptr;
+        return;
+    }
+
+    const TableSchema* table = catalog_.getTable(node.table);
+    if (table == nullptr) {
+        throw SemanticError("unknown table '" + node.table + "'");
+    }
+    currentTable_ = table;
+    node.tableId = table->tableId;
+
+    if (!node.selectStar) {
+        for (auto& col : node.columns) {
+            col->accept(*this);
+        }
+    }
+    for (auto& fn : node.aggregates) {
+        fn->accept(*this);
+    }
+    for (auto& g : node.groupBy) {
+        g->accept(*this);
+    }
+    for (auto& key : node.orderBy) {
+        key.column->accept(*this);
+    }
+    if (node.where) {
+        checkPredicate(*node.where);
+    }
+    if (node.having) {
+        node.having->accept(*this);
+        if (node.having->resolvedType != DataType::Bool) {
+            throw SemanticError("HAVING must be a boolean expression");
+        }
+    }
+
+    currentTable_ = nullptr;
+}
+
+void SemanticAnalyzer::visit(parser::DeleteStatement& node) {
+    const TableSchema* table = catalog_.getTable(node.table);
+    if (table == nullptr) {
+        throw SemanticError("unknown table '" + node.table + "'");
+    }
+    currentTable_ = table;
+    node.tableId = table->tableId;
+
+    if (node.where) {
+        checkPredicate(*node.where);
+    }
+
+    currentTable_ = nullptr;
+}
+
+void SemanticAnalyzer::visit(parser::UpdateStatement& node) {
+    const TableSchema* table = catalog_.getTable(node.table);
+    if (table == nullptr) {
+        throw SemanticError("unknown table '" + node.table + "'");
+    }
+    currentTable_ = table;
+    node.tableId = table->tableId;
+
+    std::unordered_set<std::string> seen;
+    for (std::size_t i = 0; i < node.targetColumns.size(); ++i) {
+        const std::string& name = node.targetColumns[i];
+        if (!seen.insert(name).second) {
+            throw SemanticError("duplicate assignment to column '" + name + "'");
+        }
+        int idx = table->columnIndex(name);
+        if (idx < 0) {
+            throw SemanticError("unknown column '" + name + "' in table '" +
+                                node.table + "'");
+        }
+        node.targetIndices.push_back(idx);
+        node.values[i]->accept(*this);
+        DataType col = table->columns[idx].type;
+        if (node.values[i]->resolvedType &&
+            !comparable(col, *node.values[i]->resolvedType)) {
+            throw SemanticError("type mismatch for column '" + name + "'");
+        }
+    }
+    if (node.where) {
+        checkPredicate(*node.where);
+    }
+    currentTable_ = nullptr;
+}
+
+void SemanticAnalyzer::visit(parser::DropStatement& node) {
+    if (node.isIndex) {
+        if (!catalog_.hasIndex(node.name)) {
+            throw SemanticError("unknown index '" + node.name + "'");
+        }
+        catalog_.dropIndex(node.name);
+    } else {
+        const TableSchema* t = catalog_.getTable(node.name);
+        if (t == nullptr) {
+            throw SemanticError("unknown table '" + node.name + "'");
+        }
+        node.tableId = t->tableId;
+        catalog_.dropTable(node.name);
+    }
+}
+
+void SemanticAnalyzer::visit(parser::TransactionStatement&) {}
+
+void SemanticAnalyzer::visit(parser::AlterStatement& node) {
+    const TableSchema* table = catalog_.getTable(node.table);
+    if (table == nullptr) {
+        throw SemanticError("unknown table '" + node.table + "'");
+    }
+    node.tableId = table->tableId;
+    if (node.kind == parser::AlterStatement::Kind::AddColumn) {
+        if (table->columnIndex(node.column.name) >= 0) {
+            throw SemanticError("column '" + node.column.name + "' already exists");
+        }
+        if (node.column.type == DataType::Varchar && node.column.varcharLength <= 0) {
+            throw SemanticError("VARCHAR length must be positive for column '" +
+                                node.column.name + "'");
+        }
+        if (!node.column.refTable.empty()) {
+            const TableSchema* parent = catalog_.getTable(node.column.refTable);
+            if (parent == nullptr ||
+                parent->columnIndex(node.column.refColumn) < 0) {
+                throw SemanticError("foreign key references unknown table/column");
+            }
+        }
+    } else {
+        int idx = table->columnIndex(node.dropColumn);
+        if (idx < 0) {
+            throw SemanticError("unknown column '" + node.dropColumn + "'");
+        }
+        if (table->columns.size() <= 1) {
+            throw SemanticError("cannot drop the only column of a table");
+        }
+    }
+}
+
+void SemanticAnalyzer::checkPredicate(parser::Expression& expr) {
+    expr.accept(*this);
+    if (expr.resolvedType != DataType::Bool) {
+        throw SemanticError("WHERE clause must be a boolean expression");
+    }
+}
+
+}  // namespace db::semantic
