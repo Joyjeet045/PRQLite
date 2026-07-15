@@ -15,6 +15,7 @@ bool asBool(const Value& v, bool& out) {
 Value cachedToValue(const parser::CachedValue& cv) {
     switch (cv.kind) {
         case parser::CachedValue::Kind::Int: return Value::makeInt(cv.intValue);
+        case parser::CachedValue::Kind::Float: return Value::makeDouble(cv.doubleValue);
         case parser::CachedValue::Kind::Bool: return Value::makeBool(cv.boolValue);
         case parser::CachedValue::Kind::Text: return Value::makeText(cv.stringValue);
         case parser::CachedValue::Kind::Null: return Value::null();
@@ -52,6 +53,7 @@ Value evalExpression(const parser::Expression& expr, const Tuple& tuple) {
     if (auto* lit = dynamic_cast<const LiteralExpr*>(&expr)) {
         switch (lit->kind) {
             case LiteralExpr::Kind::Integer: return Value::makeInt(lit->intValue);
+            case LiteralExpr::Kind::Float: return Value::makeDouble(lit->doubleValue);
             case LiteralExpr::Kind::String: return Value::makeText(lit->stringValue);
             case LiteralExpr::Kind::Boolean: return Value::makeBool(lit->boolValue);
             case LiteralExpr::Kind::Null: return Value::null();
@@ -83,6 +85,40 @@ Value evalExpression(const parser::Expression& expr, const Tuple& tuple) {
             case ComparisonOp::Geq: res = (*cmp >= 0); break;
         }
         return Value::makeBool(res);
+    }
+
+    if (auto* ar = dynamic_cast<const ArithmeticExpr*>(&expr)) {
+        Value l = evalExpression(*ar->left, tuple);
+        Value r = evalExpression(*ar->right, tuple);
+        bool lNum = (l.type == ValueType::Int || l.type == ValueType::Double);
+        bool rNum = (r.type == ValueType::Int || r.type == ValueType::Double);
+        if (!lNum || !rNum) return Value::null();  // NULL or non-numeric operand
+        if (l.type == ValueType::Double || r.type == ValueType::Double) {
+            double a = (l.type == ValueType::Double) ? l.doubleValue
+                                                     : static_cast<double>(l.intValue);
+            double b = (r.type == ValueType::Double) ? r.doubleValue
+                                                     : static_cast<double>(r.intValue);
+            switch (ar->op) {
+                case ArithmeticOp::Add: return Value::makeDouble(a + b);
+                case ArithmeticOp::Sub: return Value::makeDouble(a - b);
+                case ArithmeticOp::Mul: return Value::makeDouble(a * b);
+                case ArithmeticOp::Div:
+                    if (b == 0.0) return Value::null();  // division by zero -> NULL
+                    return Value::makeDouble(a / b);
+            }
+            return Value::null();
+        }
+        std::int64_t a = l.intValue;
+        std::int64_t b = r.intValue;
+        switch (ar->op) {
+            case ArithmeticOp::Add: return Value::makeInt(a + b);
+            case ArithmeticOp::Sub: return Value::makeInt(a - b);
+            case ArithmeticOp::Mul: return Value::makeInt(a * b);
+            case ArithmeticOp::Div:
+                if (b == 0) return Value::null();  // integer division by zero -> NULL
+                return Value::makeInt(a / b);
+        }
+        return Value::null();
     }
 
     if (auto* log = dynamic_cast<const LogicalExpr*>(&expr)) {

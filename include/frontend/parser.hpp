@@ -81,6 +81,9 @@ private:
     ExpressionPtr parseAnd();
     ExpressionPtr parseNot();
     ExpressionPtr parseComparison();
+    ExpressionPtr parseAdditive();
+    ExpressionPtr parseMultiplicative();
+    ExpressionPtr parseUnary();
     ExpressionPtr parsePrimary();
 };
 

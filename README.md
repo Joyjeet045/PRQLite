@@ -14,11 +14,13 @@ It runs as an interactive REPL and persists data across restarts.
 - Definitions: `BUILD RELATION` / `BUILD INDEX`, `DISCARD RELATION` / `DISCARD INDEX`,
   `RESHAPE RELATION ADD/DISCARD COLUMN`
 - Data changes: `PUT INTO`, `MODIFY`, `REMOVE`
-- Queries: `FETCH` with projection, `WHEN` (`=, !=, <, <=, >, >=`, `AND/OR/NOT`,
-  `IS [NOT] NULL`, `[NOT] IN`, `BETWEEN`, `LIKE`), `LINK ... ON` (inner join),
-  `GROUP BY`/`HAVING`, aggregates (`COUNT/SUM/AVG/MIN/MAX`), `UNIQUEONLY` /
-  `COUNT(UNIQUEONLY ...)`, `SORT BY`, `TAKE`, and uncorrelated scalar/`IN`/`EXISTS`
-  subqueries
+- Queries: `FETCH` with projection (including arithmetic such as `price * qty`),
+  `WHEN` (`=, !=, <, <=, >, >=`, `+ - * /`, `AND/OR/NOT`, `IS [NOT] NULL`,
+  `[NOT] IN`, `BETWEEN`, `LIKE`), `LINK ... ON` / `LEFT LINK` / `CROSS LINK`
+  joins, `GROUP BY`/`HAVING`, aggregates (`COUNT/SUM/AVG/MIN/MAX`), `UNIQUEONLY`
+  / `COUNT(UNIQUEONLY ...)`, `SORT BY`, `TAKE`, and uncorrelated scalar/`IN`/
+  `EXISTS` subqueries
+- Column types: `INT`, `FLOAT` (aka `DOUBLE`/`REAL`), `BOOL`, `TEXT`, `VARCHAR(n)`
 - Constraints: `PRIMARY KEY`, `UNIQUE`, `NOT NULL`, `DEFAULT`, `CHECK`, foreign keys
   (`REFERENCES`), and `VARCHAR(n)` length enforcement
 - Transactions: `START` / `SAVE` / `UNDO`
@@ -89,4 +91,4 @@ parser in `src/frontend/parser.cpp`.
 
 Larger items not yet implemented: ARIES-style redo + `pageLSN`, MVCC / isolation levels,
 a paged (disk-backed) B+ tree, a cost-based optimizer with merge join and external-sort
-spill, outer/multi-way joins, correlated subqueries, and a `FLOAT` column type.
+spill, multi-way (3+ table) joins, and correlated subqueries.

@@ -37,6 +37,7 @@ ComparisonOp toComparisonOp(TokenType type) {
 bool isLiteralToken(TokenType type) {
     switch (type) {
         case TokenType::INTEGER_LITERAL:
+        case TokenType::FLOAT_LITERAL:
         case TokenType::STRING_LITERAL:
         case TokenType::TRUE:
         case TokenType::FALSE:
@@ -121,6 +122,10 @@ std::unique_ptr<LiteralExpr> Parser::makeLiteral(const Token& tok) {
         case TokenType::INTEGER_LITERAL:
             lit->kind = LiteralExpr::Kind::Integer;
             lit->intValue = toInt64(tok);
+            break;
+        case TokenType::FLOAT_LITERAL:
+            lit->kind = LiteralExpr::Kind::Float;
+            lit->doubleValue = std::stod(tok.lexeme);
             break;
         case TokenType::STRING_LITERAL:
             lit->kind = LiteralExpr::Kind::String;
@@ -222,6 +227,7 @@ ColumnDefinition Parser::parseColumnDefinition() {
         case TokenType::INT_TYPE: def.type = DataType::Int; break;
         case TokenType::BOOL_TYPE: def.type = DataType::Bool; break;
         case TokenType::TEXT_TYPE: def.type = DataType::Text; break;
+        case TokenType::FLOAT_TYPE: def.type = DataType::Float; break;
         case TokenType::VARCHAR:
             def.type = DataType::Varchar;
             if (match(TokenType::LPAREN)) {
@@ -251,6 +257,10 @@ ColumnDefinition Parser::parseColumnDefinition() {
                 case TokenType::INTEGER_LITERAL:
                     def.defaultValue.kind = CachedValue::Kind::Int;
                     def.defaultValue.intValue = toInt64(lit);
+                    break;
+                case TokenType::FLOAT_LITERAL:
+                    def.defaultValue.kind = CachedValue::Kind::Float;
+                    def.defaultValue.doubleValue = std::stod(lit.lexeme);
                     break;
                 case TokenType::STRING_LITERAL:
                     def.defaultValue.kind = CachedValue::Kind::Text;
@@ -357,7 +367,19 @@ ASTNodePtr Parser::parseSelect() {
                 consume(TokenType::RPAREN, "')'");
                 stmt->aggregates.push_back(std::move(fn));
             } else {
-                stmt->columns.push_back(parseColumnRef());
+                // A select-list item is a general expression. A bare column is
+                // kept as a ColumnRef; anything else (arithmetic, negation) is
+                // wrapped in a ColumnRef whose `computed` holds the expression.
+                ExpressionPtr e = parseAdditive();
+                Expression* raw = e.release();
+                if (auto* cr = dynamic_cast<ColumnRef*>(raw)) {
+                    stmt->columns.push_back(std::unique_ptr<ColumnRef>(cr));
+                } else {
+                    auto col = std::make_unique<ColumnRef>();
+                    col->computed = ExpressionPtr(raw);
+                    col->column = expressionToString(*col->computed);
+                    stmt->columns.push_back(std::move(col));
+                }
             }
         } while (match(TokenType::COMMA));
     }
@@ -365,12 +387,18 @@ ASTNodePtr Parser::parseSelect() {
     consume(TokenType::FROM, "FROM");
     stmt->table = consume(TokenType::IDENTIFIER, "table name").lexeme;
 
-    if (match(TokenType::INNER)) {
-        consume(TokenType::JOIN, "JOIN");
+    if (match(TokenType::LEFT)) {
+        consume(TokenType::JOIN, "LINK");
+        stmt->joinType = SelectStatement::JoinKind::Left;
         stmt->joinTable = consume(TokenType::IDENTIFIER, "table name").lexeme;
         consume(TokenType::ON, "ON");
         stmt->joinOn = parseExpression();
+    } else if (match(TokenType::CROSS)) {
+        consume(TokenType::JOIN, "LINK");
+        stmt->joinType = SelectStatement::JoinKind::Cross;
+        stmt->joinTable = consume(TokenType::IDENTIFIER, "table name").lexeme;
     } else if (match(TokenType::JOIN)) {
+        stmt->joinType = SelectStatement::JoinKind::Inner;
         stmt->joinTable = consume(TokenType::IDENTIFIER, "table name").lexeme;
         consume(TokenType::ON, "ON");
         stmt->joinOn = parseExpression();
@@ -521,12 +549,24 @@ std::unique_ptr<ColumnRef> Parser::parseColumnRef() {
 }
 
 ExpressionPtr Parser::parseLiteral() {
+    bool negate = false;
+    if ((check(TokenType::MINUS) || check(TokenType::PLUS)) &&
+        (peekAt(1).type == TokenType::INTEGER_LITERAL ||
+         peekAt(1).type == TokenType::FLOAT_LITERAL)) {
+        negate = check(TokenType::MINUS);
+        advance();
+    }
     const Token& t = peek();
     if (!isLiteralToken(t.type)) {
         error(t, "expected a literal value");
     }
     advance();
-    return makeLiteral(t);
+    auto lit = makeLiteral(t);
+    if (negate) {
+        if (lit->kind == LiteralExpr::Kind::Integer) lit->intValue = -lit->intValue;
+        else if (lit->kind == LiteralExpr::Kind::Float) lit->doubleValue = -lit->doubleValue;
+    }
+    return lit;
 }
 
 // ---------------------------------------------------------------------------
@@ -577,7 +617,7 @@ ExpressionPtr Parser::parseNot() {
 }
 
 ExpressionPtr Parser::parseComparison() {
-    ExpressionPtr left = parsePrimary();
+    ExpressionPtr left = parseAdditive();
 
     // IS [NOT] NULL
     if (match(TokenType::IS)) {
@@ -619,23 +659,23 @@ ExpressionPtr Parser::parseComparison() {
         auto node = std::make_unique<BetweenExpr>();
         node->value = std::move(left);
         node->negated = negated;
-        node->lo = parsePrimary();
+        node->lo = parseAdditive();
         consume(TokenType::AND, "AND");
-        node->hi = parsePrimary();
+        node->hi = parseAdditive();
         return node;
     }
     if (match(TokenType::LIKE)) {
         auto node = std::make_unique<LikeExpr>();
         node->value = std::move(left);
         node->negated = negated;
-        node->pattern = parsePrimary();
+        node->pattern = parseAdditive();
         return node;
     }
 
     if (isComparisonToken(peek().type)) {
         ComparisonOp op = toComparisonOp(peek().type);
         advance();
-        ExpressionPtr right = parsePrimary();
+        ExpressionPtr right = parseAdditive();
         auto node = std::make_unique<BinaryExpr>();
         node->op = op;
         node->left = std::move(left);
@@ -643,6 +683,68 @@ ExpressionPtr Parser::parseComparison() {
         return node;
     }
     return left;
+}
+
+ExpressionPtr Parser::parseAdditive() {
+    ExpressionPtr expr = parseMultiplicative();
+    for (;;) {
+        ArithmeticOp op;
+        if (match(TokenType::PLUS)) op = ArithmeticOp::Add;
+        else if (match(TokenType::MINUS)) op = ArithmeticOp::Sub;
+        else break;
+        ExpressionPtr right = parseMultiplicative();
+        auto node = std::make_unique<ArithmeticExpr>();
+        node->op = op;
+        node->left = std::move(expr);
+        node->right = std::move(right);
+        expr = std::move(node);
+    }
+    return expr;
+}
+
+ExpressionPtr Parser::parseMultiplicative() {
+    ExpressionPtr expr = parseUnary();
+    for (;;) {
+        ArithmeticOp op;
+        if (match(TokenType::STAR)) op = ArithmeticOp::Mul;
+        else if (match(TokenType::SLASH)) op = ArithmeticOp::Div;
+        else break;
+        ExpressionPtr right = parseUnary();
+        auto node = std::make_unique<ArithmeticExpr>();
+        node->op = op;
+        node->left = std::move(expr);
+        node->right = std::move(right);
+        expr = std::move(node);
+    }
+    return expr;
+}
+
+ExpressionPtr Parser::parseUnary() {
+    if (match(TokenType::MINUS)) {
+        ExpressionPtr operand = parseUnary();
+        if (auto* lit = dynamic_cast<LiteralExpr*>(operand.get())) {
+            if (lit->kind == LiteralExpr::Kind::Integer) {
+                lit->intValue = -lit->intValue;
+                return operand;
+            }
+            if (lit->kind == LiteralExpr::Kind::Float) {
+                lit->doubleValue = -lit->doubleValue;
+                return operand;
+            }
+        }
+        auto zero = std::make_unique<LiteralExpr>();
+        zero->kind = LiteralExpr::Kind::Integer;
+        zero->intValue = 0;
+        auto node = std::make_unique<ArithmeticExpr>();
+        node->op = ArithmeticOp::Sub;
+        node->left = std::move(zero);
+        node->right = std::move(operand);
+        return node;
+    }
+    if (match(TokenType::PLUS)) {
+        return parseUnary();
+    }
+    return parsePrimary();
 }
 
 ExpressionPtr Parser::parsePrimary() {

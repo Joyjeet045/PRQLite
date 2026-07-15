@@ -44,6 +44,8 @@ enum class TokenType {
     DESC,
     JOIN,
     INNER,
+    LEFT,
+    CROSS,
     DISTINCT,
 
     // Keywords - predicates
@@ -70,6 +72,7 @@ enum class TokenType {
     BOOL_TYPE,
     TEXT_TYPE,
     VARCHAR,
+    FLOAT_TYPE,
 
     // Keywords - boolean literals
     TRUE,
@@ -78,6 +81,7 @@ enum class TokenType {
     // Literals / names
     IDENTIFIER,
     INTEGER_LITERAL,
+    FLOAT_LITERAL,
     STRING_LITERAL,
 
     // Comparison operators
@@ -87,6 +91,11 @@ enum class TokenType {
     LEQ,  // <=
     GT,   // >
     GEQ,  // >=
+
+    // Arithmetic operators
+    PLUS,   // +
+    MINUS,  // -
+    SLASH,  // /
 
     // Punctuation
     LPAREN,     // (

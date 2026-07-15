@@ -20,6 +20,12 @@ void appendI64(std::string& out, std::int64_t v) {
     out.append(buf, sizeof(buf));
 }
 
+void appendF64(std::string& out, double v) {
+    char buf[8];
+    std::memcpy(buf, &v, sizeof(v));
+    out.append(buf, sizeof(buf));
+}
+
 std::uint32_t readU32(const std::string& in, std::size_t& pos) {
     if (pos + 4 > in.size()) throw std::runtime_error("tuple: truncated u32");
     std::uint32_t v;
@@ -31,6 +37,14 @@ std::uint32_t readU32(const std::string& in, std::size_t& pos) {
 std::int64_t readI64(const std::string& in, std::size_t& pos) {
     if (pos + 8 > in.size()) throw std::runtime_error("tuple: truncated i64");
     std::int64_t v;
+    std::memcpy(&v, in.data() + pos, sizeof(v));
+    pos += 8;
+    return v;
+}
+
+double readF64(const std::string& in, std::size_t& pos) {
+    if (pos + 8 > in.size()) throw std::runtime_error("tuple: truncated f64");
+    double v;
     std::memcpy(&v, in.data() + pos, sizeof(v));
     pos += 8;
     return v;
@@ -59,6 +73,13 @@ std::string Tuple::serialize(const Schema& schema) const {
         switch (schema[i]) {
             case parser::DataType::Int:
                 appendI64(out, v.intValue);
+                break;
+            case parser::DataType::Float:
+                // A numeric value bound to a float column is stored as a double,
+                // coercing an integer source value when necessary.
+                appendF64(out, v.type == ValueType::Double
+                                   ? v.doubleValue
+                                   : static_cast<double>(v.intValue));
                 break;
             case parser::DataType::Bool:
                 out.push_back(v.boolValue ? '\1' : '\0');
@@ -93,6 +114,9 @@ Tuple Tuple::deserialize(const std::string& bytes, const Schema& schema) {
         switch (schema[i]) {
             case parser::DataType::Int:
                 values.push_back(Value::makeInt(readI64(bytes, pos)));
+                break;
+            case parser::DataType::Float:
+                values.push_back(Value::makeDouble(readF64(bytes, pos)));
                 break;
             case parser::DataType::Bool: {
                 if (pos + 1 > bytes.size()) throw std::runtime_error("tuple: truncated bool");

@@ -23,6 +23,7 @@ enum class DataType {
     Bool,
     Text,
     Varchar,
+    Float,
 };
 
 std::string_view dataTypeName(DataType type);
@@ -49,13 +50,22 @@ enum class LogicalOp {
     Or,
 };
 
+// Arithmetic operators for numeric expression trees.
+enum class ArithmeticOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+};
+
 // A scalar value captured from a subquery result. Kept here (rather than
 // reusing vm::Value) so the AST stays independent of the execution layer.
 struct CachedValue {
-    enum class Kind { Null, Int, Bool, Text };
+    enum class Kind { Null, Int, Bool, Text, Float };
     Kind kind = Kind::Null;
     std::int64_t intValue = 0;
     bool boolValue = false;
+    double doubleValue = 0.0;
     std::string stringValue;
 };
 
@@ -89,10 +99,11 @@ using ExpressionPtr = std::unique_ptr<Expression>;
 // A literal constant: 42, 'text', TRUE/FALSE, NULL.
 class LiteralExpr : public Expression {
 public:
-    enum class Kind { Integer, String, Boolean, Null };
+    enum class Kind { Integer, String, Boolean, Null, Float };
 
     Kind kind = Kind::Integer;
     std::int64_t intValue = 0;
+    double doubleValue = 0.0;
     std::string stringValue;
     bool boolValue = false;
 
@@ -104,6 +115,10 @@ class ColumnRef : public Expression {
 public:
     std::string table;   // empty when unqualified
     std::string column;
+
+    // When set, this select-list item is a computed expression (e.g. a * b)
+    // rather than a bare column; `column` then holds a display label.
+    ExpressionPtr computed;
 
     // Filled in by the semantic analyzer.
     int columnIndex = -1;
@@ -125,6 +140,16 @@ public:
 class LogicalExpr : public Expression {
 public:
     LogicalOp op = LogicalOp::And;
+    ExpressionPtr left;
+    ExpressionPtr right;
+
+    void accept(ASTVisitor& visitor) override;
+};
+
+// A numeric arithmetic expression: left (+|-|*|/) right.
+class ArithmeticExpr : public Expression {
+public:
+    ArithmeticOp op = ArithmeticOp::Add;
     ExpressionPtr left;
     ExpressionPtr right;
 
@@ -293,10 +318,13 @@ public:
     ExpressionPtr having;
 
     // INNER JOIN support. When `joinTable` is non-empty the FROM clause is a
-    // two-table nested-loop join with `joinOn` as the ON predicate.
+    // two-table join. `joinType` selects inner / left-outer / cross; `joinOn`
+    // is the ON predicate (absent for a cross join).
+    enum class JoinKind { Inner, Left, Cross };
     std::string joinTable;
     ExpressionPtr joinOn;
     int joinTableId = -1;
+    JoinKind joinType = JoinKind::Inner;
 
     // Filled in by the semantic analyzer.
     int tableId = -1;
@@ -375,6 +403,7 @@ public:
     virtual void visit(LiteralExpr& node) = 0;
     virtual void visit(ColumnRef& node) = 0;
     virtual void visit(BinaryExpr& node) = 0;
+    virtual void visit(ArithmeticExpr& node) = 0;
     virtual void visit(LogicalExpr& node) = 0;
     virtual void visit(UnaryExpr& node) = 0;
     virtual void visit(IsNullExpr& node) = 0;

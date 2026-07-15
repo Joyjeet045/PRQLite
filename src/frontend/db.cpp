@@ -165,9 +165,10 @@ void DB::saveCatalog() {
     {
         std::ofstream out(tmpPath, std::ios::trunc | std::ios::binary);
         if (!out) return;
+        out.precision(17);  // preserve full double precision for float defaults
 
         auto& cat = catalog_;
-        out << "PRQLITE3\n";
+        out << "PRQLITE4\n";
         out << cat.nextTableId() << "\n";
 
         auto tables = cat.allTables();
@@ -182,6 +183,7 @@ void DB::saveCatalog() {
                     << static_cast<int>(c.defaultValue.kind) << " "
                     << c.defaultValue.intValue << " "
                     << (c.defaultValue.boolValue ? 1 : 0) << " "
+                    << c.defaultValue.doubleValue << " "
                     << c.defaultValue.stringValue.size() << " ";
                 out.write(c.defaultValue.stringValue.data(),
                           static_cast<std::streamsize>(c.defaultValue.stringValue.size()));
@@ -228,6 +230,7 @@ void DB::loadCatalog() {
     if (magic == "PRQLITE1") ver = 1;
     else if (magic == "PRQLITE2") ver = 2;
     else if (magic == "PRQLITE3") ver = 3;
+    else if (magic == "PRQLITE4") ver = 4;
     else return;
 
     auto& cat = catalog_;
@@ -248,7 +251,10 @@ void DB::loadCatalog() {
             if (ver >= 2) {
                 int nn = 0, pk = 0, uq = 0, hd = 0, dk = 0, db = 0;
                 long long dint = 0, tlen = 0;
-                in >> nn >> pk >> uq >> hd >> dk >> dint >> db >> tlen;
+                double ddbl = 0.0;
+                in >> nn >> pk >> uq >> hd >> dk >> dint >> db;
+                if (ver >= 4) in >> ddbl;
+                in >> tlen;
                 col.notNull = nn != 0;
                 col.primaryKey = pk != 0;
                 col.unique = uq != 0;
@@ -256,6 +262,7 @@ void DB::loadCatalog() {
                 col.defaultValue.kind = static_cast<parser::CachedValue::Kind>(dk);
                 col.defaultValue.intValue = dint;
                 col.defaultValue.boolValue = db != 0;
+                col.defaultValue.doubleValue = ddbl;
                 in.get();  // consume the single separating space before the text
                 std::string txt(static_cast<std::size_t>(tlen), '\0');
                 if (tlen > 0) in.read(&txt[0], static_cast<std::streamsize>(tlen));

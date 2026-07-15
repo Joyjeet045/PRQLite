@@ -33,6 +33,7 @@ public:
     void visit(parser::LiteralExpr& node) override;
     void visit(parser::ColumnRef& node) override;
     void visit(parser::BinaryExpr& node) override;
+    void visit(parser::ArithmeticExpr& node) override;
     void visit(parser::LogicalExpr& node) override;
     void visit(parser::UnaryExpr& node) override;
     void visit(parser::IsNullExpr& node) override;

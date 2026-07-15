@@ -89,3 +89,7 @@ add_test(NAME phase5_test COMMAND phase5_test)
 add_executable(phase6_test tests/phase6_test.cpp)
 target_link_libraries(phase6_test PRIVATE prqlite_core)
 add_test(NAME phase6_test COMMAND phase6_test)
+
+add_executable(features_test tests/features_test.cpp)
+target_link_libraries(features_test PRIVATE prqlite_core)
+add_test(NAME features_test COMMAND features_test)

@@ -24,6 +24,8 @@ const std::unordered_map<std::string, TokenType>& keywordTable() {
         {"INT", TokenType::INT_TYPE},    {"INTEGER", TokenType::INT_TYPE},
         {"BOOL", TokenType::BOOL_TYPE},  {"BOOLEAN", TokenType::BOOL_TYPE},
         {"TEXT", TokenType::TEXT_TYPE},  {"VARCHAR", TokenType::VARCHAR},
+        {"FLOAT", TokenType::FLOAT_TYPE}, {"DOUBLE", TokenType::FLOAT_TYPE},
+        {"REAL", TokenType::FLOAT_TYPE},
         {"TRUE", TokenType::TRUE},       {"FALSE", TokenType::FALSE},
         {"MODIFY", TokenType::UPDATE},   {"SET", TokenType::SET},
         {"DISCARD", TokenType::DROP},    {"SORT", TokenType::ORDER},
@@ -31,6 +33,7 @@ const std::unordered_map<std::string, TokenType>& keywordTable() {
         {"HAVING", TokenType::HAVING},   {"TAKE", TokenType::LIMIT},
         {"AS", TokenType::AS},           {"ASC", TokenType::ASC},
         {"DESC", TokenType::DESC},       {"LINK", TokenType::JOIN},
+        {"LEFT", TokenType::LEFT},       {"CROSS", TokenType::CROSS},
         {"IS", TokenType::IS},
         {"IN", TokenType::IN},           {"BETWEEN", TokenType::BETWEEN},
         {"LIKE", TokenType::LIKE},       {"NULL", TokenType::NULL_LITERAL},
@@ -144,6 +147,9 @@ Token Lexer::scanToken() {
         case ',': return makeToken(TokenType::COMMA, ",", startColumn);
         case ';': return makeToken(TokenType::SEMICOLON, ";", startColumn);
         case '*': return makeToken(TokenType::STAR, "*", startColumn);
+        case '+': return makeToken(TokenType::PLUS, "+", startColumn);
+        case '-': return makeToken(TokenType::MINUS, "-", startColumn);
+        case '/': return makeToken(TokenType::SLASH, "/", startColumn);
         case '.': return makeToken(TokenType::DOT, ".", startColumn);
         case '=': return makeToken(TokenType::EQ, "=", startColumn);
         case '<':
@@ -187,6 +193,13 @@ Token Lexer::scanNumber() {
     std::string lexeme;
     while (!isAtEnd() && isDigit(peek())) {
         lexeme.push_back(advance());
+    }
+    if (peek() == '.' && isDigit(peekNext())) {
+        lexeme.push_back(advance());
+        while (!isAtEnd() && isDigit(peek())) {
+            lexeme.push_back(advance());
+        }
+        return makeToken(TokenType::FLOAT_LITERAL, lexeme, startColumn);
     }
     return makeToken(TokenType::INTEGER_LITERAL, lexeme, startColumn);
 }
@@ -252,6 +265,8 @@ std::string_view tokenTypeName(TokenType type) {
         case TokenType::DESC: return "DESC";
         case TokenType::JOIN: return "JOIN";
         case TokenType::INNER: return "INNER";
+        case TokenType::LEFT: return "LEFT";
+        case TokenType::CROSS: return "CROSS";
         case TokenType::IS: return "IS";
         case TokenType::IN: return "IN";
         case TokenType::BETWEEN: return "BETWEEN";
@@ -269,10 +284,12 @@ std::string_view tokenTypeName(TokenType type) {
         case TokenType::BOOL_TYPE: return "BOOL_TYPE";
         case TokenType::TEXT_TYPE: return "TEXT_TYPE";
         case TokenType::VARCHAR: return "VARCHAR";
+        case TokenType::FLOAT_TYPE: return "FLOAT_TYPE";
         case TokenType::TRUE: return "TRUE";
         case TokenType::FALSE: return "FALSE";
         case TokenType::IDENTIFIER: return "IDENTIFIER";
         case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";
+        case TokenType::FLOAT_LITERAL: return "FLOAT_LITERAL";
         case TokenType::STRING_LITERAL: return "STRING_LITERAL";
         case TokenType::EQ: return "EQ";
         case TokenType::NEQ: return "NEQ";
@@ -280,6 +297,9 @@ std::string_view tokenTypeName(TokenType type) {
         case TokenType::LEQ: return "LEQ";
         case TokenType::GT: return "GT";
         case TokenType::GEQ: return "GEQ";
+        case TokenType::PLUS: return "PLUS";
+        case TokenType::MINUS: return "MINUS";
+        case TokenType::SLASH: return "SLASH";
         case TokenType::LPAREN: return "LPAREN";
         case TokenType::RPAREN: return "RPAREN";
         case TokenType::COMMA: return "COMMA";

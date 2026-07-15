@@ -42,6 +42,7 @@ public:
     void visit(parser::LiteralExpr&) override {}
     void visit(parser::ColumnRef&) override {}
     void visit(parser::BinaryExpr&) override {}
+    void visit(parser::ArithmeticExpr&) override {}
     void visit(parser::LogicalExpr&) override {}
     void visit(parser::UnaryExpr&) override {}
     void visit(parser::IsNullExpr&) override {}

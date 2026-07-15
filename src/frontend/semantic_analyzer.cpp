@@ -15,10 +15,17 @@ bool isStringType(DataType type) {
     return type == DataType::Text || type == DataType::Varchar;
 }
 
+bool isNumericType(DataType type) {
+    return type == DataType::Int || type == DataType::Float;
+}
+
 // Two operands are comparable when they belong to the same family: numeric
 // with numeric, boolean with boolean, or any string type with any string type.
 bool comparable(DataType a, DataType b) {
     if (isStringType(a) && isStringType(b)) {
+        return true;
+    }
+    if (isNumericType(a) && isNumericType(b)) {
         return true;
     }
     return a == b;
@@ -27,7 +34,8 @@ bool comparable(DataType a, DataType b) {
 // Whether a literal of kind `k` may be stored in a column of type `col`.
 bool literalMatchesColumn(LiteralExpr::Kind k, DataType col) {
     switch (k) {
-        case LiteralExpr::Kind::Integer: return col == DataType::Int;
+        case LiteralExpr::Kind::Integer: return col == DataType::Int || col == DataType::Float;
+        case LiteralExpr::Kind::Float: return col == DataType::Float;
         case LiteralExpr::Kind::Boolean: return col == DataType::Bool;
         case LiteralExpr::Kind::String: return isStringType(col);
         case LiteralExpr::Kind::Null: return true;  // NULL fits any column
@@ -38,7 +46,8 @@ bool literalMatchesColumn(LiteralExpr::Kind k, DataType col) {
 // Whether a DEFAULT literal (CachedValue) fits a column of type `col`.
 bool defaultMatchesColumn(const parser::CachedValue& v, DataType col) {
     switch (v.kind) {
-        case parser::CachedValue::Kind::Int: return col == DataType::Int;
+        case parser::CachedValue::Kind::Int: return col == DataType::Int || col == DataType::Float;
+        case parser::CachedValue::Kind::Float: return col == DataType::Float;
         case parser::CachedValue::Kind::Bool: return col == DataType::Bool;
         case parser::CachedValue::Kind::Text: return isStringType(col);
         case parser::CachedValue::Kind::Null: return true;
@@ -78,6 +87,7 @@ void SemanticAnalyzer::bindExpression(parser::Expression& expr,
 void SemanticAnalyzer::visit(parser::LiteralExpr& node) {
     switch (node.kind) {
         case LiteralExpr::Kind::Integer: node.resolvedType = DataType::Int; break;
+        case LiteralExpr::Kind::Float: node.resolvedType = DataType::Float; break;
         case LiteralExpr::Kind::String: node.resolvedType = DataType::Text; break;
         case LiteralExpr::Kind::Boolean: node.resolvedType = DataType::Bool; break;
         case LiteralExpr::Kind::Null: node.resolvedType = std::nullopt; break;
@@ -85,6 +95,14 @@ void SemanticAnalyzer::visit(parser::LiteralExpr& node) {
 }
 
 void SemanticAnalyzer::visit(parser::ColumnRef& node) {
+    if (node.computed) {
+        // A computed select-list item: analyze the wrapped expression and take
+        // its resolved type; it projects a value rather than a stored column.
+        node.computed->accept(*this);
+        node.resolvedType = node.computed->resolvedType;
+        node.columnIndex = -1;
+        return;
+    }
     if (joinMode_) {
         // Resolve against the two joined tables, honoring qualifiers.
         if (!node.table.empty()) {
@@ -153,6 +171,20 @@ void SemanticAnalyzer::visit(parser::BinaryExpr& node) {
         }
     }
     node.resolvedType = DataType::Bool;
+}
+
+void SemanticAnalyzer::visit(parser::ArithmeticExpr& node) {
+    node.left->accept(*this);
+    node.right->accept(*this);
+    if (node.left->resolvedType && !isNumericType(*node.left->resolvedType)) {
+        throw SemanticError("arithmetic operator requires numeric operands");
+    }
+    if (node.right->resolvedType && !isNumericType(*node.right->resolvedType)) {
+        throw SemanticError("arithmetic operator requires numeric operands");
+    }
+    bool isFloat = (node.left->resolvedType == DataType::Float) ||
+                   (node.right->resolvedType == DataType::Float);
+    node.resolvedType = isFloat ? DataType::Float : DataType::Int;
 }
 
 void SemanticAnalyzer::visit(parser::LogicalExpr& node) {
@@ -228,10 +260,16 @@ void SemanticAnalyzer::visit(parser::FunctionExpr& node) {
     }
     node.argument->accept(*this);
     DataType at = node.argument->resolvedType.value_or(DataType::Int);
-    if ((fn == "SUM" || fn == "AVG") && at != DataType::Int) {
+    if ((fn == "SUM" || fn == "AVG") && !isNumericType(at)) {
         throw SemanticError(fn + " requires a numeric column");
     }
-    node.resolvedType = (fn == "MIN" || fn == "MAX") ? at : DataType::Int;
+    if (fn == "AVG") {
+        node.resolvedType = DataType::Float;
+    } else if (fn == "SUM" || fn == "MIN" || fn == "MAX") {
+        node.resolvedType = at;
+    } else {
+        node.resolvedType = DataType::Int;
+    }
 }
 
 void SemanticAnalyzer::visit(parser::SubqueryExpr& node) {

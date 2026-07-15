@@ -10,6 +10,7 @@ std::string_view dataTypeName(DataType type) {
         case DataType::Bool: return "BOOL";
         case DataType::Text: return "TEXT";
         case DataType::Varchar: return "VARCHAR";
+        case DataType::Float: return "FLOAT";
     }
     return "UNKNOWN";
 }
@@ -41,6 +42,7 @@ std::string quoteString(const std::string& s) {
 std::string literalText(const LiteralExpr& l) {
     switch (l.kind) {
         case LiteralExpr::Kind::Integer: return std::to_string(l.intValue);
+        case LiteralExpr::Kind::Float: return std::to_string(l.doubleValue);
         case LiteralExpr::Kind::String: return quoteString(l.stringValue);
         case LiteralExpr::Kind::Boolean: return l.boolValue ? "TRUE" : "FALSE";
         case LiteralExpr::Kind::Null: return "NULL";
@@ -61,6 +63,17 @@ std::string expressionToString(const Expression& e) {
         return "(" + expressionToString(*b->left) + " " +
                std::string(comparisonOpName(b->op)) + " " +
                expressionToString(*b->right) + ")";
+    }
+    if (auto* a = dynamic_cast<const ArithmeticExpr*>(&e)) {
+        const char* op = "+";
+        switch (a->op) {
+            case ArithmeticOp::Add: op = "+"; break;
+            case ArithmeticOp::Sub: op = "-"; break;
+            case ArithmeticOp::Mul: op = "*"; break;
+            case ArithmeticOp::Div: op = "/"; break;
+        }
+        return "(" + expressionToString(*a->left) + " " + op + " " +
+               expressionToString(*a->right) + ")";
     }
     if (auto* lg = dynamic_cast<const LogicalExpr*>(&e)) {
         std::string op = (lg->op == LogicalOp::And) ? " AND " : " OR ";
@@ -102,6 +115,7 @@ std::string expressionToString(const Expression& e) {
 void LiteralExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ColumnRef::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void BinaryExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void ArithmeticExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void LogicalExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void UnaryExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void IsNullExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }

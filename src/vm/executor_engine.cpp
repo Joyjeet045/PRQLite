@@ -64,15 +64,26 @@ Value computeAggregate(const parser::FunctionExpr& fn,
     }
 
     if (fn.name == "SUM" || fn.name == "AVG") {
-        std::int64_t sum = 0;
+        std::int64_t isum = 0;
+        double dsum = 0.0;
         std::int64_t n = 0;
+        bool isFloat = false;
         for (const Value* v : vals) {
-            sum += v->intValue;
+            if (v->type == ValueType::Double) {
+                isFloat = true;
+                dsum += v->doubleValue;
+            } else {
+                isum += v->intValue;
+            }
             ++n;
         }
         if (n == 0) return Value::null();  // aggregate over no rows
-        if (fn.name == "SUM") return Value::makeInt(sum);
-        return Value::makeDouble(static_cast<double>(sum) / static_cast<double>(n));
+        double total = dsum + static_cast<double>(isum);
+        if (fn.name == "AVG") {
+            return Value::makeDouble(total / static_cast<double>(n));
+        }
+        if (isFloat) return Value::makeDouble(total);
+        return Value::makeInt(isum);
     }
 
     // MIN / MAX
@@ -235,12 +246,8 @@ parser::CachedValue toCached(const Value& v) {
             cv.stringValue = v.textValue;
             break;
         case ValueType::Double:
-            // The AST cache has no float kind; round to the nearest integer for
-            // the rare case of an AVG() used as a scalar/IN subquery value.
-            cv.kind = parser::CachedValue::Kind::Int;
-            cv.intValue = static_cast<std::int64_t>(v.doubleValue < 0
-                              ? v.doubleValue - 0.5
-                              : v.doubleValue + 0.5);
+            cv.kind = parser::CachedValue::Kind::Float;
+            cv.doubleValue = v.doubleValue;
             break;
         case ValueType::Null:
             cv.kind = parser::CachedValue::Kind::Null;
@@ -259,6 +266,7 @@ Schema schemaOf(const semantic::TableSchema& ts) {
 Value fromCached(const parser::CachedValue& cv) {
     switch (cv.kind) {
         case parser::CachedValue::Kind::Int: return Value::makeInt(cv.intValue);
+        case parser::CachedValue::Kind::Float: return Value::makeDouble(cv.doubleValue);
         case parser::CachedValue::Kind::Bool: return Value::makeBool(cv.boolValue);
         case parser::CachedValue::Kind::Text: return Value::makeText(cv.stringValue);
         case parser::CachedValue::Kind::Null: return Value::null();
@@ -596,7 +604,8 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
     std::vector<std::pair<RecordID, std::vector<Value>>> rows;
 
     if (!node.joinTable.empty()) {
-        // INNER JOIN: hash join on an equi-join predicate, else nested loop.
+        // JOIN: hash join for an INNER equi-join, nested loop otherwise. LEFT
+        // joins null-pad unmatched left rows; CROSS joins form the full product.
         Schema lschema, rschema;
         std::vector<std::string> lnames, rnames;
         loadSchema(node.tableId, lschema, lnames);
@@ -604,67 +613,94 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
         names = lnames;
         names.insert(names.end(), rnames.begin(), rnames.end());
         const int leftWidth = static_cast<int>(lnames.size());
+        const int rightWidth = static_cast<int>(rnames.size());
 
         auto leftRows = gatherRows(node.tableId, lschema, nullptr);
         auto rightRows = gatherRows(node.joinTableId, rschema, nullptr);
 
-        // Detect `leftCol = rightCol` so we can hash join. Column indices in the
-        // ON clause are bound against the combined schema (right cols offset by
-        // the left table's width).
-        int leftKey = -1;
-        int rightKey = -1;
-        if (auto* bin = dynamic_cast<parser::BinaryExpr*>(node.joinOn.get())) {
-            if (bin->op == parser::ComparisonOp::Eq) {
-                auto* a = dynamic_cast<parser::ColumnRef*>(bin->left.get());
-                auto* b = dynamic_cast<parser::ColumnRef*>(bin->right.get());
-                if (a != nullptr && b != nullptr) {
-                    int ai = a->columnIndex;
-                    int bi = b->columnIndex;
-                    if (ai < leftWidth && bi >= leftWidth) {
-                        leftKey = ai;
-                        rightKey = bi - leftWidth;
-                    } else if (bi < leftWidth && ai >= leftWidth) {
-                        leftKey = bi;
-                        rightKey = ai - leftWidth;
-                    }
-                }
-            }
-        }
+        const std::vector<Value> nullRight(rightWidth, Value::null());
 
-        auto keyOf = [](const Value& v) {
-            return std::to_string(static_cast<int>(v.type)) + ':' + v.toString();
-        };
-
-        if (leftKey >= 0 && rightKey >= 0) {
-            // Build a hash table on the right input, then probe with the left.
-            std::unordered_map<std::string, std::vector<const std::vector<Value>*>> ht;
-            for (auto& rp : rightRows) {
-                const Value& kv = rp.second[rightKey];
-                if (kv.isNull()) continue;  // NULL never matches in an equi-join
-                ht[keyOf(kv)].push_back(&rp.second);
-            }
+        if (node.joinType == parser::SelectStatement::JoinKind::Cross) {
             for (auto& lp : leftRows) {
-                const Value& kv = lp.second[leftKey];
-                if (kv.isNull()) continue;
-                auto it = ht.find(keyOf(kv));
-                if (it == ht.end()) continue;
-                for (const std::vector<Value>* rrow : it->second) {
+                for (auto& rp : rightRows) {
                     std::vector<Value> combined = lp.second;
-                    combined.insert(combined.end(), rrow->begin(), rrow->end());
+                    combined.insert(combined.end(), rp.second.begin(), rp.second.end());
                     Tuple ct(combined);
                     if (node.where && !predicateTrue(*node.where, ct)) continue;
                     rows.emplace_back(RecordID{}, std::move(combined));
                 }
             }
         } else {
-            for (auto& lp : leftRows) {
+            // Detect `leftCol = rightCol` so an INNER join can hash. Column
+            // indices in the ON clause are bound against the combined schema
+            // (right columns offset by the left table's width).
+            int leftKey = -1;
+            int rightKey = -1;
+            if (auto* bin = dynamic_cast<parser::BinaryExpr*>(node.joinOn.get())) {
+                if (bin->op == parser::ComparisonOp::Eq) {
+                    auto* a = dynamic_cast<parser::ColumnRef*>(bin->left.get());
+                    auto* b = dynamic_cast<parser::ColumnRef*>(bin->right.get());
+                    if (a != nullptr && b != nullptr) {
+                        int ai = a->columnIndex;
+                        int bi = b->columnIndex;
+                        if (ai < leftWidth && bi >= leftWidth) {
+                            leftKey = ai;
+                            rightKey = bi - leftWidth;
+                        } else if (bi < leftWidth && ai >= leftWidth) {
+                            leftKey = bi;
+                            rightKey = ai - leftWidth;
+                        }
+                    }
+                }
+            }
+
+            auto keyOf = [](const Value& v) {
+                return std::to_string(static_cast<int>(v.type)) + ':' + v.toString();
+            };
+
+            const bool inner =
+                node.joinType == parser::SelectStatement::JoinKind::Inner;
+            if (inner && leftKey >= 0 && rightKey >= 0) {
+                // Build a hash table on the right input, then probe with the left.
+                std::unordered_map<std::string, std::vector<const std::vector<Value>*>> ht;
                 for (auto& rp : rightRows) {
-                    std::vector<Value> combined = lp.second;
-                    combined.insert(combined.end(), rp.second.begin(), rp.second.end());
-                    Tuple ct(combined);
-                    if (node.joinOn && !predicateTrue(*node.joinOn, ct)) continue;
-                    if (node.where && !predicateTrue(*node.where, ct)) continue;
-                    rows.emplace_back(RecordID{}, std::move(combined));
+                    const Value& kv = rp.second[rightKey];
+                    if (kv.isNull()) continue;  // NULL never matches in an equi-join
+                    ht[keyOf(kv)].push_back(&rp.second);
+                }
+                for (auto& lp : leftRows) {
+                    const Value& kv = lp.second[leftKey];
+                    if (kv.isNull()) continue;
+                    auto it = ht.find(keyOf(kv));
+                    if (it == ht.end()) continue;
+                    for (const std::vector<Value>* rrow : it->second) {
+                        std::vector<Value> combined = lp.second;
+                        combined.insert(combined.end(), rrow->begin(), rrow->end());
+                        Tuple ct(combined);
+                        if (node.where && !predicateTrue(*node.where, ct)) continue;
+                        rows.emplace_back(RecordID{}, std::move(combined));
+                    }
+                }
+            } else {
+                for (auto& lp : leftRows) {
+                    bool matched = false;
+                    for (auto& rp : rightRows) {
+                        std::vector<Value> combined = lp.second;
+                        combined.insert(combined.end(), rp.second.begin(), rp.second.end());
+                        Tuple ct(combined);
+                        if (node.joinOn && !predicateTrue(*node.joinOn, ct)) continue;
+                        matched = true;
+                        if (node.where && !predicateTrue(*node.where, ct)) continue;
+                        rows.emplace_back(RecordID{}, std::move(combined));
+                    }
+                    if (!matched &&
+                        node.joinType == parser::SelectStatement::JoinKind::Left) {
+                        std::vector<Value> combined = lp.second;
+                        combined.insert(combined.end(), nullRight.begin(), nullRight.end());
+                        Tuple ct(combined);
+                        if (node.where && !predicateTrue(*node.where, ct)) continue;
+                        rows.emplace_back(RecordID{}, std::move(combined));
+                    }
                 }
             }
         }
@@ -717,6 +753,11 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
                 }
                 std::vector<Value> outRow;
                 for (const auto& col : node.columns) {
+                    if (col->computed) {
+                        Tuple repTuple(rep);
+                        outRow.push_back(evalExpression(*col->computed, repTuple));
+                        continue;
+                    }
                     int ci = col->columnIndex;
                     outRow.push_back((ci >= 0 && ci < static_cast<int>(rep.size()))
                                          ? rep[ci]
@@ -758,16 +799,20 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
             result_.rows.push_back(pr.second);
         }
     } else {
-        std::vector<int> indices;
         for (const auto& col : node.columns) {
-            indices.push_back(col->columnIndex);
             result_.columns.push_back(col->column);
         }
         for (auto& pr : rows) {
             const auto& src = pr.second;
             std::vector<Value> projected;
-            projected.reserve(indices.size());
-            for (int idx : indices) {
+            projected.reserve(node.columns.size());
+            for (const auto& col : node.columns) {
+                if (col->computed) {
+                    Tuple ct(src);
+                    projected.push_back(evalExpression(*col->computed, ct));
+                    continue;
+                }
+                int idx = col->columnIndex;
                 projected.push_back((idx >= 0 && idx < static_cast<int>(src.size()))
                                         ? src[idx]
                                         : Value::null());

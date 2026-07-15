@@ -33,6 +33,8 @@ accepted as source.
   LIMIT                   TAKE
   DISTINCT                UNIQUEONLY
   INNER JOIN / JOIN       LINK
+  LEFT JOIN               LEFT LINK
+  CROSS JOIN              CROSS LINK
   BEGIN                   START
   COMMIT                  SAVE
   ROLLBACK                UNDO
@@ -40,7 +42,8 @@ accepted as source.
   Unchanged from SQL: FROM, INTO, VALUES, SET, ON, INDEX, GROUP BY, HAVING, AS,
   ASC, DESC, ADD, COLUMN, PRIMARY KEY, UNIQUE, NOT NULL, DEFAULT, CHECK,
   REFERENCES, IN, IS, BETWEEN, LIKE, EXISTS, AND, OR, NOT, TRUE, FALSE, NULL,
-  and the type names INT/INTEGER, BOOL/BOOLEAN, TEXT, VARCHAR.
+  and the type names INT/INTEGER, FLOAT/DOUBLE/REAL, BOOL/BOOLEAN, TEXT,
+  VARCHAR.
 
 
 Notation (EBNF)
@@ -61,21 +64,25 @@ Terminals (lexical)
 
   ident       := letter { letter | digit | "_" }          ; identifiers; keywords
                                                             ; are reserved
-  integer     := digit { digit }                           ; NOTE: no unary minus
+  integer     := digit { digit }                           ; unsigned; a leading
+                                                            ; "-" is the unary op
+  float       := digit { digit } "." digit { digit }        ; e.g. 3.14, 0.5
   string      := "'" { any-char | "''" } "'"               ; '' escapes a quote
   TRUE        := "TRUE"
   FALSE       := "FALSE"
   NULL        := "NULL"
 
   compOp      := "=" | "!=" | "<" | "<=" | ">" | ">="
+  arithOp     := "+" | "-" | "*" | "/"
   punctuation := "(" | ")" | "," | ";" | "*" | "."
 
   Comments / whitespace are skipped by the lexer.
   Keywords: FETCH FROM WHEN PUT INTO VALUES BUILD RELATION INDEX ON REMOVE
             MODIFY SET DISCARD RESHAPE ADD COLUMN REFERENCES FOREIGN KEY PRIMARY
             UNIQUE DEFAULT CHECK UNIQUEONLY SORT BY GROUP HAVING TAKE AS ASC
-            DESC LINK IS IN BETWEEN LIKE EXISTS START SAVE UNDO AND OR NOT INT
-            INTEGER BOOL BOOLEAN TEXT VARCHAR TRUE FALSE NULL
+            DESC LINK LEFT CROSS IS IN BETWEEN LIKE EXISTS START SAVE UNDO AND
+            OR NOT INT INTEGER FLOAT DOUBLE REAL BOOL BOOLEAN TEXT VARCHAR TRUE
+            FALSE NULL
 
 
 ================================================================================
@@ -106,10 +113,13 @@ Statements
                  [ "HAVING" expression ]
                  [ "SORT" "BY" sortKey { "," sortKey } ]
                  [ "TAKE" integer ] ;
-  fetchItem   := aggregate | columnRef ;
+  fetchItem   := aggregate | expression ; ; a bare columnRef is the common case,
+                                          ; but any arithmetic projection is ok
   aggregate   := ident "(" [ "UNIQUEONLY" ] ( "*" | columnRef ) ")" ; ; COUNT/SUM/
                                                                       ; AVG/MIN/MAX
-  linkClause  := "LINK" ident "ON" expression ;   ; single inner join
+  linkClause  := "LINK" ident "ON" expression          ; inner join
+               | "LEFT" "LINK" ident "ON" expression    ; left outer join
+               | "CROSS" "LINK" ident ;                 ; cross join (no ON)
   sortKey     := columnRef [ "ASC" | "DESC" ] ;
 
   removeStmt  := "REMOVE" "FROM" ident [ "WHEN" expression ] ;
@@ -133,7 +143,8 @@ Column definitions and constraints
 
   columnDef   := ident dataType { constraint } ;
 
-  dataType    := "INT" | "BOOL" | "TEXT" | "VARCHAR" [ "(" integer ")" ] ;
+  dataType    := "INT" | "FLOAT" | "BOOL" | "TEXT"
+               | "VARCHAR" [ "(" integer ")" ] ;    ; FLOAT accepts DOUBLE/REAL
 
   constraint  := "PRIMARY" "KEY"                        ; implies NOT NULL + UNIQUE
                | "UNIQUE"
@@ -152,12 +163,16 @@ Expressions (precedence climbing; loosest binding first)
   andExpr     := notExpr { "AND" notExpr } ;
   notExpr     := "NOT" notExpr | comparison ;
 
-  comparison  := primary [ predicate ] ;
+  comparison  := additive [ predicate ] ;
   predicate   := "IS" [ "NOT" ] "NULL"
                | [ "NOT" ] "IN" "(" ( subquery | literal { "," literal } ) ")"
-               | [ "NOT" ] "BETWEEN" primary "AND" primary
-               | [ "NOT" ] "LIKE" primary
-               | compOp primary ;
+               | [ "NOT" ] "BETWEEN" additive "AND" additive
+               | [ "NOT" ] "LIKE" additive
+               | compOp additive ;
+
+  additive       := multiplicative { ( "+" | "-" ) multiplicative } ;
+  multiplicative := unary { ( "*" | "/" ) unary } ;
+  unary          := ( "-" | "+" ) unary | primary ; ; leading "-" negates
 
   primary     := "EXISTS" "(" subquery ")"
                | "(" ( subquery | orExpr ) ")"
@@ -166,21 +181,22 @@ Expressions (precedence climbing; loosest binding first)
 
   subquery    := fetchStmt ;                  ; uncorrelated only
   columnRef   := ident [ "." ident ] ;        ; optional table qualifier
-  literal     := integer | string | "TRUE" | "FALSE" | "NULL" ;
+  literal     := integer | float | string | "TRUE" | "FALSE" | "NULL" ;
 
 
 ================================================================================
 Notes / intentional limitations
 ================================================================================
 
-  * No arithmetic operators (+ - * /). A comparison's operands are primaries
-    (columns, literals, or subqueries), so expressions like `a = b + 5` are not
-    supported.
-  * No unary minus: negative numeric literals (e.g. -1) are not accepted by the
-    lexer/parser.
-  * INSERT ... VALUES (PUT ... VALUES) accepts literals only, not general
-    expressions.
-  * LINK is a single, inner-only join and always requires an ON predicate.
+  * Arithmetic operators (+ - * /) bind tighter than comparisons; "*" and "/"
+    bind tighter than "+" and "-", and a leading "-" is unary negation. Integer
+    operands give an integer result ("/" truncates); if either operand is a
+    FLOAT the result is a FLOAT. Division by zero yields NULL.
+  * PUT ... VALUES accepts literals only (including negative and float
+    literals), not general expressions.
+  * LINK is a two-table join. INNER (LINK) and LEFT LINK require an ON
+    predicate; CROSS LINK takes none and forms the full cartesian product. An
+    INNER equi-join (leftCol = rightCol) is executed as a hash join.
   * Subqueries are uncorrelated and appear only as IN (FETCH ...),
     EXISTS (FETCH ...), or a parenthesized scalar (FETCH ...).
   * A few constructs need two-token lookahead (peekAt(1)):
