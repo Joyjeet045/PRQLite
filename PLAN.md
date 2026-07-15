@@ -1,4 +1,4 @@
-# PRQLite — Relational Database from Scratch (C++)
+# Relite — Relational Database from Scratch (C++)
 
 Implementation plan mirroring the article
 [How I built a Relational Database from scratch in C++](https://medium.com/@cruelkratos/database-internals-cpp-guide-5cf198d657db).

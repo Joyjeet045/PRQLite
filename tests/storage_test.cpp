@@ -16,7 +16,7 @@ using namespace db;
 namespace {
 
 std::string tempDbPath(const char* tag) {
-    return std::string("prqlite_test_") + tag + ".db";
+    return std::string("relite_test_") + tag + ".db";
 }
 
 void testTupleRoundTrip() {

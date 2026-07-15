@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(PRQLite VERSION 0.1.0 LANGUAGES CXX)
+project(Relite VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,7 +13,7 @@ endif()
 # Core library: all engine code lives here so both the REPL executable and the
 # test targets can link against it.
 # ---------------------------------------------------------------------------
-add_library(prqlite_core
+add_library(relite_core
     src/frontend/lexer.cpp
     src/frontend/ast.cpp
     src/frontend/parser.cpp
@@ -37,13 +37,13 @@ add_library(prqlite_core
     src/backend/buffer_pool.cpp
     src/backend/durability.cpp
 )
-target_include_directories(prqlite_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(relite_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
 # ---------------------------------------------------------------------------
 # REPL executable.
 # ---------------------------------------------------------------------------
-add_executable(prqlite main.cpp)
-target_link_libraries(prqlite PRIVATE prqlite_core)
+add_executable(relite main.cpp)
+target_link_libraries(relite PRIVATE relite_core)
 
 # ---------------------------------------------------------------------------
 # Tests (self-contained, no external framework required).
@@ -51,45 +51,45 @@ target_link_libraries(prqlite PRIVATE prqlite_core)
 enable_testing()
 
 add_executable(lexer_test tests/lexer_test.cpp)
-target_link_libraries(lexer_test PRIVATE prqlite_core)
+target_link_libraries(lexer_test PRIVATE relite_core)
 add_test(NAME lexer_test COMMAND lexer_test)
 
 add_executable(parser_test tests/parser_test.cpp)
-target_link_libraries(parser_test PRIVATE prqlite_core)
+target_link_libraries(parser_test PRIVATE relite_core)
 add_test(NAME parser_test COMMAND parser_test)
 
 add_executable(semantic_test tests/semantic_test.cpp)
-target_link_libraries(semantic_test PRIVATE prqlite_core)
+target_link_libraries(semantic_test PRIVATE relite_core)
 add_test(NAME semantic_test COMMAND semantic_test)
 
 add_executable(storage_test tests/storage_test.cpp)
-target_link_libraries(storage_test PRIVATE prqlite_core)
+target_link_libraries(storage_test PRIVATE relite_core)
 add_test(NAME storage_test COMMAND storage_test)
 
 add_executable(table_manager_test tests/table_manager_test.cpp)
-target_link_libraries(table_manager_test PRIVATE prqlite_core)
+target_link_libraries(table_manager_test PRIVATE relite_core)
 add_test(NAME table_manager_test COMMAND table_manager_test)
 
 add_executable(engine_test tests/engine_test.cpp)
-target_link_libraries(engine_test PRIVATE prqlite_core)
+target_link_libraries(engine_test PRIVATE relite_core)
 add_test(NAME engine_test COMMAND engine_test)
 
 add_executable(index_test tests/index_test.cpp)
-target_link_libraries(index_test PRIVATE prqlite_core)
+target_link_libraries(index_test PRIVATE relite_core)
 add_test(NAME index_test COMMAND index_test)
 
 add_executable(txn_test tests/txn_test.cpp)
-target_link_libraries(txn_test PRIVATE prqlite_core)
+target_link_libraries(txn_test PRIVATE relite_core)
 add_test(NAME txn_test COMMAND txn_test)
 
 add_executable(phase5_test tests/phase5_test.cpp)
-target_link_libraries(phase5_test PRIVATE prqlite_core)
+target_link_libraries(phase5_test PRIVATE relite_core)
 add_test(NAME phase5_test COMMAND phase5_test)
 
 add_executable(phase6_test tests/phase6_test.cpp)
-target_link_libraries(phase6_test PRIVATE prqlite_core)
+target_link_libraries(phase6_test PRIVATE relite_core)
 add_test(NAME phase6_test COMMAND phase6_test)
 
 add_executable(features_test tests/features_test.cpp)
-target_link_libraries(features_test PRIVATE prqlite_core)
+target_link_libraries(features_test PRIVATE relite_core)
 add_test(NAME features_test COMMAND features_test)

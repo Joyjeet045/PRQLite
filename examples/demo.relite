@@ -1,5 +1,5 @@
--- PRQLite feature demo (PRQLite query language, not SQL). Run with:
---   Get-Content examples/demo.prql | .\build\prqlite.exe
+-- Relite feature demo (Relite query language, not SQL). Run with:
+--   Get-Content examples/demo.relite | .\build\relite.exe
 -- (The REPL starts a fresh database each launch, so this script is self-contained.)
 
 -- 1) DDL + PUT (emp.dept_id is a FOREIGN KEY into dept.id)

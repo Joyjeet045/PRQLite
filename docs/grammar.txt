@@ -1,7 +1,7 @@
-PRQLite Query Language Grammar
+Relite Query Language Grammar
 ==============================
 
-PRQLite uses its OWN query language, not SQL. This file documents the accepted
+Relite uses its OWN query language, not SQL. This file documents the accepted
 language. It is DOCUMENTATION ONLY -- the parser is a hand-written
 recursive-descent parser and does not read this file. The authoritative grammar
 is the set of parse* functions in src/frontend/parser.cpp; each production below
@@ -10,14 +10,14 @@ src/frontend/lexer.cpp and enumerated in include/frontend/token.hpp.
 
 
 ================================================================================
-Keyword mapping (SQL -> PRQLite)
+Keyword mapping (SQL -> Relite)
 ================================================================================
 
-PRQLite's keywords replace SQL's. The engine internals still use SQL-flavored
-TokenType names for familiarity, but only the PRQLite words on the right are
+Relite's keywords replace SQL's. The engine internals still use SQL-flavored
+TokenType names for familiarity, but only the Relite words on the right are
 accepted as source.
 
-  SQL                     PRQLite
+  SQL                     Relite
   ---------------------   ---------------------
   CREATE TABLE            BUILD RELATION
   CREATE INDEX            BUILD INDEX

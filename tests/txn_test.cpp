@@ -35,7 +35,7 @@ void testLockManager() {
 }
 
 void testWalRoundTrip() {
-    std::string path = "prqlite_test_wal.log";
+    std::string path = "relite_test_wal.log";
     {
         txn::WriteAheadLog wal(path, /*truncate=*/true);
         txn::LogRecord begin;
@@ -96,7 +96,7 @@ void testTransactionUndo() {
 }
 
 void testTransactionWithWal() {
-    std::string path = "prqlite_test_txnwal.log";
+    std::string path = "relite_test_txnwal.log";
     txn::WriteAheadLog wal(path, /*truncate=*/true);
     txn::LockManager lm;
     txn::TransactionManager tm(&wal, &lm);

@@ -71,7 +71,7 @@ vm::ResultSet exec(vm::StorageEngine& se, const std::string& sql) {
 
 void testIndexedQueries() {
     semantic::Catalog::instance().reset();
-    std::string path = "prqlite_test_index.db";
+    std::string path = "relite_test_index.db";
     vm::StorageEngine se(path, /*truncate=*/true);
 
     exec(se, "BUILD RELATION t (id INT, name TEXT);");

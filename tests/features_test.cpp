@@ -48,7 +48,7 @@ bool near(double a, double b) { return std::fabs(a - b) < 1e-9; }
 
 void run() {
     semantic::Catalog::instance().reset();
-    Harness h("prqlite_test_feat.db", "prqlite_test_feat.wal");
+    Harness h("relite_test_feat.db", "relite_test_feat.wal");
 
     h.run("BUILD RELATION items (id INT, name TEXT, price FLOAT, qty INT);");
     h.run("PUT INTO items VALUES (1,'a',9.99,3),(2,'b',19.5,2),(3,'c',-5.25,10);");
@@ -111,8 +111,8 @@ void run() {
     assert(near(h.run("FETCH bal FROM acct WHEN id = 7;").rows[0][0].doubleValue, 2.5));
 
     semantic::Catalog::instance().reset();
-    std::remove("prqlite_test_feat.db");
-    std::remove("prqlite_test_feat.wal");
+    std::remove("relite_test_feat.db");
+    std::remove("relite_test_feat.wal");
     std::cout << "All feature tests passed.\n";
 }
 

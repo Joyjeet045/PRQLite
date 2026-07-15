@@ -29,7 +29,7 @@ int countRows(vm::TableManager& tm, int tableId) {
 }
 
 void run() {
-    std::string path = "prqlite_test_tm.db";
+    std::string path = "relite_test_tm.db";
     backend::DiskManager disk(path, /*truncate=*/true);
     backend::BufferPool pool(&disk, /*numFrames=*/4);
     vm::TableManager tm(&pool);

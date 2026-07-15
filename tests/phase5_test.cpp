@@ -45,7 +45,7 @@ int scalarInt(const vm::ResultSet& rs) {
 
 void run() {
     semantic::Catalog::instance().reset();
-    Harness h("prqlite_test_p5.db", "prqlite_test_p5.wal");
+    Harness h("relite_test_p5.db", "relite_test_p5.wal");
 
     h.run("BUILD RELATION emp (id INT, name TEXT, dept TEXT, salary INT);");
     h.run("PUT INTO emp VALUES (1,'Alice','eng',100),(2,'Bob','eng',200),"
@@ -122,8 +122,8 @@ void run() {
     assert(!semantic::Catalog::instance().hasTable("emp"));
 
     semantic::Catalog::instance().reset();
-    std::remove("prqlite_test_p5.db");
-    std::remove("prqlite_test_p5.wal");
+    std::remove("relite_test_p5.db");
+    std::remove("relite_test_p5.wal");
     std::cout << "All Phase V tests passed.\n";
 }
 

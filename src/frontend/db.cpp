@@ -29,9 +29,9 @@ namespace db {
 
 namespace {
 
-constexpr const char* kDefaultDbFile = "prqlite.db";
-constexpr const char* kDefaultWalFile = "prqlite.wal";
-constexpr const char* kMetaFile = "prqlite.meta";
+constexpr const char* kDefaultDbFile = "relite.db";
+constexpr const char* kDefaultWalFile = "relite.wal";
+constexpr const char* kMetaFile = "relite.meta";
 
 constexpr std::size_t kCheckpointRecords = 256;
 
@@ -157,7 +157,7 @@ void DB::saveCatalog() {
         out.precision(17);
 
         auto& cat = catalog_;
-        out << "PRQLITE4\n";
+        out << "RELITE4\n";
         out << cat.nextTableId() << "\n";
 
         auto tables = cat.allTables();
@@ -215,10 +215,10 @@ void DB::loadCatalog() {
     std::string magic;
     in >> magic;
     int ver = 0;
-    if (magic == "PRQLITE1") ver = 1;
-    else if (magic == "PRQLITE2") ver = 2;
-    else if (magic == "PRQLITE3") ver = 3;
-    else if (magic == "PRQLITE4") ver = 4;
+    if (magic == "RELITE1") ver = 1;
+    else if (magic == "RELITE2") ver = 2;
+    else if (magic == "RELITE3") ver = 3;
+    else if (magic == "RELITE4") ver = 4;
     else return;
 
     auto& cat = catalog_;
@@ -357,11 +357,11 @@ void DB::recover() {
 }
 
 void DB::run() {
-    const std::string primaryPrompt = "prqlite=# ";
-    const std::string continuationPrompt = "prqlite-# ";
+    const std::string primaryPrompt = "relite=# ";
+    const std::string continuationPrompt = "relite-# ";
 
-    std::cout << "PRQLite 0.1.0 - a relational database from scratch.\n";
-    std::cout << "Speaks the PRQLite query language (not SQL). Terminate statements\n";
+    std::cout << "Relite 0.1.0 - a relational database from scratch.\n";
+    std::cout << "Speaks the Relite query language (not SQL). Terminate statements\n";
     std::cout << "with ';'. Use \\q to quit, \\h for help.\n\n";
 
     std::string buffer;
@@ -377,7 +377,7 @@ void DB::run() {
                 break;
             }
             if (trimmed == "\\h") {
-                std::cout << "PRQLite language (not SQL):\n"
+                std::cout << "Relite language (not SQL):\n"
                              "  BUILD RELATION / BUILD INDEX, DISCARD RELATION / DISCARD INDEX\n"
                              "  PUT INTO, FETCH, MODIFY, REMOVE, RESHAPE RELATION\n"
                              "  FETCH supports WHEN (=,!=,<,<=,>,>=, AND/OR/NOT,\n"

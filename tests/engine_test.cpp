@@ -26,7 +26,7 @@ vm::ResultSet exec(vm::StorageEngine& se, const std::string& sql) {
 
 void run() {
     semantic::Catalog::instance().reset();
-    std::string path = "prqlite_test_engine.db";
+    std::string path = "relite_test_engine.db";
     vm::StorageEngine se(path, /*truncate=*/true);
 
     exec(se, "BUILD RELATION friend (id INT, name TEXT, active BOOL);");

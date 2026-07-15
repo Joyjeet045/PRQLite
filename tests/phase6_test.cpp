@@ -108,15 +108,15 @@ void testAlterTable(Harness& h) {
 
 void run() {
     semantic::Catalog::instance().reset();
-    Harness h("prqlite_test_p6.db", "prqlite_test_p6.wal");
+    Harness h("relite_test_p6.db", "relite_test_p6.wal");
 
     testForeignKeys(h);
     testSubqueries(h);
     testAlterTable(h);
 
     semantic::Catalog::instance().reset();
-    std::remove("prqlite_test_p6.db");
-    std::remove("prqlite_test_p6.wal");
+    std::remove("relite_test_p6.db");
+    std::remove("relite_test_p6.wal");
     std::cout << "All Phase V+ tests passed (subqueries, foreign keys, ALTER).\n";
 }
 

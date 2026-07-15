@@ -1,10 +1,10 @@
-# PRQLite
+# Relite
 
-[![CI](https://github.com/Joyjeet045/PRQLite/actions/workflows/ci.yml/badge.svg)](https://github.com/Joyjeet045/PRQLite/actions/workflows/ci.yml)
+[![CI](https://github.com/Joyjeet045/Relite/actions/workflows/ci.yml/badge.svg)](https://github.com/Joyjeet045/Relite/actions/workflows/ci.yml)
 
-A relational database built from scratch in modern C++ (C++20). PRQLite implements the
+A relational database built from scratch in modern C++ (C++20). Relite implements the
 full stack of a small single-node RDBMS: a front-end for its **own query language**
-(PRQLite QL, not SQL), a Volcano-model execution engine, a paged storage engine with a
+(Relite QL, not SQL), a Volcano-model execution engine, a paged storage engine with a
 buffer pool, B+ tree indexing, and ACID transactions with write-ahead logging and crash
 recovery.
 
@@ -12,7 +12,7 @@ It runs as an interactive REPL and persists data across restarts.
 
 ## Features
 
-**Query language (PRQLite QL, not SQL)**
+**Query language (Relite QL, not SQL)**
 - Definitions: `BUILD RELATION` / `BUILD INDEX`, `DISCARD RELATION` / `DISCARD INDEX`,
   `RESHAPE RELATION ADD/DISCARD COLUMN`
 - Data changes: `PUT INTO`, `MODIFY`, `REMOVE`
@@ -27,7 +27,7 @@ It runs as an interactive REPL and persists data across restarts.
   (`REFERENCES`), and `VARCHAR(n)` length enforcement
 - Transactions: `START` / `SAVE` / `UNDO`
 
-The full keyword vocabulary and SQL-to-PRQLite mapping are in
+The full keyword vocabulary and SQL-to-Relite mapping are in
 [docs/grammar.txt](docs/grammar.txt).
 
 **Engine internals**
@@ -51,13 +51,13 @@ cmake --build build
 ## Run
 
 ```sh
-./build/prqlite        # (build/prqlite.exe on Windows)
+./build/relite        # (build/relite.exe on Windows)
 ```
 
 ```
-prqlite=# BUILD RELATION users (id INT PRIMARY KEY, name VARCHAR(16) NOT NULL);
-prqlite=# PUT INTO users VALUES (1, 'ann');
-prqlite=# FETCH * FROM users;
+relite=# BUILD RELATION users (id INT PRIMARY KEY, name VARCHAR(16) NOT NULL);
+relite=# PUT INTO users VALUES (1, 'ann');
+relite=# FETCH * FROM users;
 ```
 
 Type `\h` for help and `\q` to quit.
@@ -85,7 +85,7 @@ docs/         grammar.txt (SQL grammar reference)
 
 ## Grammar
 
-The accepted query language (and its SQL-to-PRQLite keyword mapping) is documented in
+The accepted query language (and its SQL-to-Relite keyword mapping) is documented in
 [docs/grammar.txt](docs/grammar.txt). The authoritative grammar is the recursive-descent
 parser in `src/frontend/parser.cpp`.
 
