@@ -31,9 +31,12 @@ accepted as source.
   WHERE                   WHEN
   ORDER BY                SORT BY
   LIMIT                   TAKE
+  OFFSET                  SKIP
   DISTINCT                UNIQUEONLY
   INNER JOIN / JOIN       LINK
   LEFT JOIN               LEFT LINK
+  RIGHT JOIN              RIGHT LINK
+  FULL JOIN               FULL LINK
   CROSS JOIN              CROSS LINK
   BEGIN                   START
   COMMIT                  SAVE
@@ -41,9 +44,12 @@ accepted as source.
 
   Unchanged from SQL: FROM, INTO, VALUES, SET, ON, INDEX, GROUP BY, HAVING, AS,
   ASC, DESC, ADD, COLUMN, PRIMARY KEY, UNIQUE, NOT NULL, DEFAULT, CHECK,
-  REFERENCES, IN, IS, BETWEEN, LIKE, EXISTS, AND, OR, NOT, TRUE, FALSE, NULL,
-  and the type names INT/INTEGER, FLOAT/DOUBLE/REAL, BOOL/BOOLEAN, TEXT,
-  VARCHAR.
+  AUTO_INCREMENT (aka SERIAL), REFERENCES, IN, IS, BETWEEN, LIKE, EXISTS, AND,
+  OR, NOT, TRUE, FALSE, NULL, EXPLAIN, UNION [ALL], INTERSECT, EXCEPT, the
+  CASE / WHEN / THEN / ELSE / END expression keywords, the scalar functions
+  (UPPER, LOWER, LENGTH, SUBSTR, TRIM, ABS, ROUND, MOD, CEIL, FLOOR, COALESCE,
+  NULLIF, CAST), and the type names INT/INTEGER/BIGINT/SMALLINT,
+  FLOAT/DOUBLE/REAL, BOOL/BOOLEAN, TEXT, VARCHAR.
 
 
 Notation (EBNF)
@@ -79,10 +85,11 @@ Terminals (lexical)
   Comments / whitespace are skipped by the lexer.
   Keywords: FETCH FROM WHEN PUT INTO VALUES BUILD RELATION INDEX ON REMOVE
             MODIFY SET DISCARD RESHAPE ADD COLUMN REFERENCES FOREIGN KEY PRIMARY
-            UNIQUE DEFAULT CHECK UNIQUEONLY SORT BY GROUP HAVING TAKE AS ASC
-            DESC LINK LEFT CROSS IS IN BETWEEN LIKE EXISTS START SAVE UNDO AND
-            OR NOT INT INTEGER FLOAT DOUBLE REAL BOOL BOOLEAN TEXT VARCHAR TRUE
-            FALSE NULL
+            UNIQUE DEFAULT CHECK AUTO_INCREMENT SERIAL UNIQUEONLY SORT BY GROUP
+            HAVING TAKE SKIP AS ASC DESC LINK LEFT RIGHT FULL CROSS IS IN BETWEEN
+            LIKE EXISTS EXPLAIN UNION INTERSECT EXCEPT ALL CASE THEN ELSE END
+            START SAVE UNDO AND OR NOT INT INTEGER BIGINT SMALLINT FLOAT DOUBLE
+            REAL BOOL BOOLEAN TEXT VARCHAR TRUE FALSE NULL
 
 
 ================================================================================
@@ -102,24 +109,29 @@ Statements
                | "BUILD" "INDEX" ident "ON" ident "(" ident ")" ;
 
   putStmt     := "PUT" "INTO" ident [ "(" ident { "," ident } ")" ]
-                 "VALUES" valueRow { "," valueRow } ;
+                 ( "VALUES" valueRow { "," valueRow } | fetchStmt ) ;
   valueRow    := "(" literal { "," literal } ")" ;   ; values are literals only
 
-  fetchStmt   := "FETCH" [ "UNIQUEONLY" ] ( "*" | fetchItem { "," fetchItem } )
-                 "FROM" ident
+  fetchStmt   := [ "EXPLAIN" ] selectCore { setOp selectCore } ;
+  setOp       := "UNION" [ "ALL" ] | "INTERSECT" | "EXCEPT" ;
+  selectCore  := "FETCH" [ "UNIQUEONLY" ] ( "*" | fetchItem { "," fetchItem } )
+                 "FROM" ident [ alias ]
                  [ linkClause ]
                  [ "WHEN"   expression ]
                  [ "GROUP" "BY" columnRef { "," columnRef } ]
                  [ "HAVING" expression ]
                  [ "SORT" "BY" sortKey { "," sortKey } ]
-                 [ "TAKE" integer ] ;
-  fetchItem   := aggregate | expression ; ; a bare columnRef is the common case,
-                                          ; but any arithmetic projection is ok
+                 [ "TAKE" integer ] [ "SKIP" integer ] ;
+  fetchItem   := ( aggregate | expression ) [ "AS" ident ] ; ; a bare columnRef
+                                          ; is common; arithmetic/functions are ok
+  alias       := [ "AS" ] ident ;
   aggregate   := ident "(" [ "UNIQUEONLY" ] ( "*" | columnRef ) ")" ; ; COUNT/SUM/
                                                                       ; AVG/MIN/MAX
-  linkClause  := "LINK" ident "ON" expression          ; inner join
-               | "LEFT" "LINK" ident "ON" expression    ; left outer join
-               | "CROSS" "LINK" ident ;                 ; cross join (no ON)
+  linkClause  := "LINK" ident [ alias ] "ON" expression   ; inner join
+               | "LEFT"  "LINK" ident [ alias ] "ON" expression ; left outer
+               | "RIGHT" "LINK" ident [ alias ] "ON" expression ; right outer
+               | "FULL"  "LINK" ident [ alias ] "ON" expression ; full outer
+               | "CROSS" "LINK" ident [ alias ] ;              ; cross (no ON)
   sortKey     := columnRef [ "ASC" | "DESC" ] ;
 
   removeStmt  := "REMOVE" "FROM" ident [ "WHEN" expression ] ;
@@ -144,11 +156,13 @@ Column definitions and constraints
   columnDef   := ident dataType { constraint } ;
 
   dataType    := "INT" | "FLOAT" | "BOOL" | "TEXT"
-               | "VARCHAR" [ "(" integer ")" ] ;    ; FLOAT accepts DOUBLE/REAL
+               | "VARCHAR" [ "(" integer ")" ] ;    ; INT accepts BIGINT/SMALLINT;
+                                                    ; FLOAT accepts DOUBLE/REAL
 
   constraint  := "PRIMARY" "KEY"                        ; implies NOT NULL + UNIQUE
                | "UNIQUE"
                | "NOT" "NULL"
+               | "AUTO_INCREMENT"                       ; INT only; also SERIAL
                | "DEFAULT" literal
                | "REFERENCES" ident "(" ident ")"       ; inline foreign key
                | "CHECK" "(" expression ")" ;
@@ -176,8 +190,15 @@ Expressions (precedence climbing; loosest binding first)
 
   primary     := "EXISTS" "(" subquery ")"
                | "(" ( subquery | orExpr ) ")"
+               | caseExpr
+               | call
                | literal
                | columnRef ;
+
+  caseExpr    := "CASE" { "WHEN" expression "THEN" additive }
+                 [ "ELSE" additive ] "END" ;         ; >= 1 WHEN branch
+  call        := ident "(" [ expression { "," expression } ] ")"
+               | "CAST" "(" expression "AS" dataType ")" ;
 
   subquery    := fetchStmt ;                  ; uncorrelated only
   columnRef   := ident [ "." ident ] ;        ; optional table qualifier
@@ -193,12 +214,19 @@ Notes / intentional limitations
     operands give an integer result ("/" truncates); if either operand is a
     FLOAT the result is a FLOAT. Division by zero yields NULL.
   * PUT ... VALUES accepts literals only (including negative and float
-    literals), not general expressions.
-  * LINK is a two-table join. INNER (LINK) and LEFT LINK require an ON
-    predicate; CROSS LINK takes none and forms the full cartesian product. An
-    INNER equi-join (leftCol = rightCol) is executed as a hash join.
-  * Subqueries are uncorrelated and appear only as IN (FETCH ...),
-    EXISTS (FETCH ...), or a parenthesized scalar (FETCH ...).
+    literals); PUT ... FETCH inserts the rows produced by a query.
+  * LINK is a two-table join. INNER (LINK), LEFT, RIGHT, and FULL LINK require
+    an ON predicate; CROSS LINK takes none and forms the full cartesian product.
+    An INNER equi-join (leftCol = rightCol) is executed as a hash join; the
+    outer joins use a nested loop. Tables may be given an alias (enabling
+    self-joins).
+  * UNION / UNION ALL / INTERSECT / EXCEPT combine two FETCH cores (left
+    associative); all but UNION ALL remove duplicate rows.
+  * Aggregates (COUNT/SUM/AVG/MIN/MAX) appear only in a FETCH list; other
+    ident "(" ... ")" calls are scalar functions valid anywhere in an
+    expression. CASE and CAST are expression forms.
+  * Subqueries are uncorrelated and appear as IN (FETCH ...), EXISTS (FETCH ...),
+    or a parenthesized scalar (FETCH ...), including inside MODIFY/REMOVE.
   * A few constructs need two-token lookahead (peekAt(1)):
       - `ident "("` distinguishes an aggregate call from a column reference.
       - `NOT` before IN / BETWEEN / LIKE (vs. a boolean NOT).
