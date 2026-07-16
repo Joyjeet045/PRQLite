@@ -674,6 +674,7 @@ void SemanticAnalyzer::visit(parser::InsertStatement& node) {
         }
     }
 
+    for (auto& col : node.returning) col->accept(*this);
     currentTable_ = nullptr;
 }
 
@@ -821,6 +822,7 @@ void SemanticAnalyzer::visit(parser::DeleteStatement& node) {
         checkPredicate(*node.where);
     }
 
+    for (auto& col : node.returning) col->accept(*this);
     currentTable_ = nullptr;
 }
 
@@ -854,6 +856,7 @@ void SemanticAnalyzer::visit(parser::UpdateStatement& node) {
     if (node.where) {
         checkPredicate(*node.where);
     }
+    for (auto& col : node.returning) col->accept(*this);
     currentTable_ = nullptr;
 }
 

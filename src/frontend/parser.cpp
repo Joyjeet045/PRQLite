@@ -374,6 +374,7 @@ ASTNodePtr Parser::parseInsert() {
         auto sel = parseSelect();
         stmt->select = std::unique_ptr<SelectStatement>(
             dynamic_cast<SelectStatement*>(sel.release()));
+        parseReturning(stmt->returningStar, stmt->returning);
         return stmt;
     }
 
@@ -381,6 +382,7 @@ ASTNodePtr Parser::parseInsert() {
         consume(TokenType::VALUES, "VALUES");
         stmt->defaultValues = true;
         stmt->rows.emplace_back();
+        parseReturning(stmt->returningStar, stmt->returning);
         return stmt;
     }
 
@@ -395,6 +397,7 @@ ASTNodePtr Parser::parseInsert() {
         stmt->rows.push_back(std::move(row));
     } while (match(TokenType::COMMA));
 
+    parseReturning(stmt->returningStar, stmt->returning);
     return stmt;
 }
 
@@ -642,6 +645,7 @@ ASTNodePtr Parser::parseDelete() {
     if (match(TokenType::WHERE)) {
         stmt->where = parseExpression();
     }
+    parseReturning(stmt->returningStar, stmt->returning);
     return stmt;
 }
 
@@ -660,6 +664,7 @@ ASTNodePtr Parser::parseUpdate() {
     if (match(TokenType::WHERE)) {
         stmt->where = parseExpression();
     }
+    parseReturning(stmt->returningStar, stmt->returning);
     return stmt;
 }
 
@@ -762,6 +767,18 @@ std::string Parser::parseOptionalAlias() {
         return advance().lexeme;
     }
     return "";
+}
+
+void Parser::parseReturning(bool& star,
+                            std::vector<std::unique_ptr<ColumnRef>>& cols) {
+    if (!match(TokenType::RETURNING)) return;
+    if (match(TokenType::STAR)) {
+        star = true;
+        return;
+    }
+    do {
+        cols.push_back(parseColumnRef());
+    } while (match(TokenType::COMMA));
 }
 
 DataType Parser::parseCastType() {

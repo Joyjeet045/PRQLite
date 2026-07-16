@@ -484,6 +484,32 @@ void run() {
                after.rows[0][1].intValue == 99);
     }
 
+    /* RETURNING projects affected rows from PUT / MODIFY / REMOVE. */
+    {
+        h.run("BUILD RELATION ret (id INT AUTO_INCREMENT, v INT);");
+        auto ins = h.run("PUT INTO ret (v) VALUES (10),(20) RETURNING id, v;");
+        assert(ins.isQuery && ins.rows.size() == 2);
+        assert(ins.columns.size() == 2 && ins.columns[0] == "id" &&
+               ins.columns[1] == "v");
+        assert(ins.rows[0][0].intValue == 1 && ins.rows[0][1].intValue == 10 &&
+               ins.rows[1][0].intValue == 2 && ins.rows[1][1].intValue == 20);
+
+        auto insStar = h.run("PUT INTO ret (v) VALUES (30) RETURNING *;");
+        assert(insStar.isQuery && insStar.rows.size() == 1 &&
+               insStar.rows[0][0].intValue == 3 &&
+               insStar.rows[0][1].intValue == 30);
+
+        auto upd = h.run("MODIFY ret SET v = v + 100 WHEN id = 1 RETURNING id, v;");
+        assert(upd.isQuery && upd.rows.size() == 1 &&
+               upd.rows[0][0].intValue == 1 && upd.rows[0][1].intValue == 110);
+
+        auto del = h.run("REMOVE FROM ret WHEN id = 2 RETURNING *;");
+        assert(del.isQuery && del.rows.size() == 1 &&
+               del.rows[0][0].intValue == 2 && del.rows[0][1].intValue == 20);
+
+        assert(h.run("FETCH id FROM ret;").rows.size() == 2);
+    }
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");

@@ -1102,6 +1102,8 @@ void ExecutorEngine::visit(parser::InsertStatement& node) {
     }
 
     int count = 0;
+    const bool wantReturn = node.returningStar || !node.returning.empty();
+    std::vector<std::vector<Value>> returned;
     for (auto& provided : providedRows) {
         std::vector<Value> vals(ncols, Value::null());
         std::vector<bool> isSet(ncols, false);
@@ -1152,10 +1154,34 @@ void ExecutorEngine::visit(parser::InsertStatement& node) {
                 se->tables().eraseTuple(tid, rid);
             });
         }
+        if (wantReturn) {
+            if (node.returningStar) {
+                returned.push_back(tup.values());
+            } else {
+                std::vector<Value> proj;
+                proj.reserve(node.returning.size());
+                for (auto& col : node.returning) {
+                    proj.push_back(tup.at(col->columnIndex));
+                }
+                returned.push_back(std::move(proj));
+            }
+        }
         ++count;
     }
     if (!txnActive()) storage_.versions().commitPending();
-    result_.message = "PUT 0 " + std::to_string(count);
+    if (wantReturn) {
+        result_.isQuery = true;
+        if (node.returningStar) {
+            result_.columns = names;
+        } else {
+            for (auto& col : node.returning) {
+                result_.columns.push_back(names[col->columnIndex]);
+            }
+        }
+        result_.rows = std::move(returned);
+    } else {
+        result_.message = "PUT 0 " + std::to_string(count);
+    }
 }
 
 void ExecutorEngine::runWindowQuery(parser::SelectStatement& node) {
@@ -1942,7 +1968,31 @@ void ExecutorEngine::visit(parser::DeleteStatement& node) {
         storage_.versions().stageDelete(node.tableId, vrid);
     }
     if (!txnActive()) storage_.versions().commitPending();
-    result_.message = "REMOVE " + std::to_string(victims.size());
+    if (node.returningStar || !node.returning.empty()) {
+        result_.isQuery = true;
+        if (node.returningStar) {
+            result_.columns = names;
+        } else {
+            for (auto& col : node.returning) {
+                result_.columns.push_back(names[col->columnIndex]);
+            }
+        }
+        for (auto& [vrid, vtuple] : victims) {
+            (void)vrid;
+            if (node.returningStar) {
+                result_.rows.push_back(vtuple.values());
+            } else {
+                std::vector<Value> proj;
+                proj.reserve(node.returning.size());
+                for (auto& col : node.returning) {
+                    proj.push_back(vtuple.at(col->columnIndex));
+                }
+                result_.rows.push_back(std::move(proj));
+            }
+        }
+    } else {
+        result_.message = "REMOVE " + std::to_string(victims.size());
+    }
 }
 
 void ExecutorEngine::visit(parser::UpdateStatement& node) {
@@ -1968,6 +2018,8 @@ void ExecutorEngine::visit(parser::UpdateStatement& node) {
     }
 
     int count = 0;
+    const bool wantReturn = node.returningStar || !node.returning.empty();
+    std::vector<std::vector<Value>> returned;
     for (auto& [rid, row] : rows) {
         if (txnActive()) lockOrThrow(rid, /*exclusive=*/true);
         Tuple oldTup(row);
@@ -2017,10 +2069,34 @@ void ExecutorEngine::visit(parser::UpdateStatement& node) {
                 for (const auto& [idx, key] : oldKeys) idx->add(key, rr);
             });
         }
+        if (wantReturn) {
+            if (node.returningStar) {
+                returned.push_back(newTup.values());
+            } else {
+                std::vector<Value> proj;
+                proj.reserve(node.returning.size());
+                for (auto& col : node.returning) {
+                    proj.push_back(newTup.at(col->columnIndex));
+                }
+                returned.push_back(std::move(proj));
+            }
+        }
         ++count;
     }
     if (!txnActive()) storage_.versions().commitPending();
-    result_.message = "MODIFY " + std::to_string(count);
+    if (wantReturn) {
+        result_.isQuery = true;
+        if (node.returningStar) {
+            result_.columns = names;
+        } else {
+            for (auto& col : node.returning) {
+                result_.columns.push_back(names[col->columnIndex]);
+            }
+        }
+        result_.rows = std::move(returned);
+    } else {
+        result_.message = "MODIFY " + std::to_string(count);
+    }
 }
 
 void ExecutorEngine::visit(parser::DropStatement& node) {

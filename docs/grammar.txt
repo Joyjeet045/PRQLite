@@ -116,8 +116,9 @@ Statements
   putStmt     := "PUT" "INTO" ident [ "(" ident { "," ident } ")" ]
                  ( "VALUES" valueRow { "," valueRow }
                  | "DEFAULT" "VALUES"
-                 | fetchStmt ) ;
+                 | fetchStmt ) [ returning ] ;
   valueRow    := "(" literal { "," literal } ")" ;   ; values are literals only
+  returning   := "RETURNING" ( "*" | columnRef { "," columnRef } ) ;
 
   fetchStmt   := [ "EXPLAIN" ] selectCore { setOp selectCore } ;
   setOp       := "UNION" [ "ALL" ] | "INTERSECT" | "EXCEPT" ;
@@ -146,10 +147,10 @@ Statements
                | "CROSS" "LINK" ident [ alias ] ;              ; cross (no ON)
   sortKey     := columnRef [ "ASC" | "DESC" ] ;
 
-  removeStmt  := "REMOVE" "FROM" ident [ "WHEN" expression ] ;
+  removeStmt  := "REMOVE" "FROM" ident [ "WHEN" expression ] [ returning ] ;
 
   modifyStmt  := "MODIFY" ident "SET" assignment { "," assignment }
-                 [ "WHEN" expression ] ;
+                 [ "WHEN" expression ] [ returning ] ;
   assignment  := ident "=" expression ;
 
   discardStmt := "DISCARD" ( "RELATION" ident | "VIEW" ident | "INDEX" ident ) ;

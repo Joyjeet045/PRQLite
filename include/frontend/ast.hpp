@@ -284,6 +284,9 @@ public:
     std::unique_ptr<SelectStatement> select;
     bool defaultValues = false;
 
+    bool returningStar = false;
+    std::vector<std::unique_ptr<ColumnRef>> returning;
+
     int tableId = -1;
 
     void accept(ASTVisitor& visitor) override;
@@ -341,6 +344,9 @@ public:
     std::string table;
     ExpressionPtr where;
 
+    bool returningStar = false;
+    std::vector<std::unique_ptr<ColumnRef>> returning;
+
     int tableId = -1;
 
     void accept(ASTVisitor& visitor) override;
@@ -352,6 +358,9 @@ public:
     std::vector<std::string> targetColumns;
     std::vector<ExpressionPtr> values;
     ExpressionPtr where;
+
+    bool returningStar = false;
+    std::vector<std::unique_ptr<ColumnRef>> returning;
 
     int tableId = -1;
     std::vector<int> targetIndices;
