@@ -275,6 +275,34 @@ std::vector<std::pair<RecordID, std::vector<Value>>> ExecutorEngine::sourceRows(
     return rows;
 }
 
+std::vector<std::pair<RecordID, std::vector<Value>>> ExecutorEngine::gatherJoinInput(
+    parser::SelectStatement& node, int tableId, const Schema& schema) {
+    if (node.asOf) {
+        std::vector<std::pair<RecordID, std::vector<Value>>> rows;
+        for (std::string& bytes :
+             storage_.versions().snapshotAsOf(tableId, node.asOfVersion)) {
+            Tuple t = Tuple::deserialize(bytes, schema);
+            rows.emplace_back(RecordID{}, t.values());
+        }
+        return rows;
+    }
+    if (txnActive()) {
+        const semantic::TableSchema* ts = catalog_.getTableById(tableId);
+        std::uint64_t snap = 0;
+        if ((ts == nullptr || !ts->isView) &&
+            storage_.versions().snapshotVersionOf(*currentTxn_, snap)) {
+            std::vector<std::pair<RecordID, std::vector<Value>>> rows;
+            for (std::string& bytes :
+                 storage_.versions().snapshotForTxn(tableId, snap)) {
+                Tuple t = Tuple::deserialize(bytes, schema);
+                rows.emplace_back(RecordID{}, t.values());
+            }
+            return rows;
+        }
+    }
+    return gatherBaseRows(tableId, schema, nullptr);
+}
+
 std::vector<std::pair<RecordID, std::vector<Value>>> ExecutorEngine::joinTwo(
     const std::vector<std::pair<RecordID, std::vector<Value>>>& leftRows,
     int leftWidth,
@@ -1484,14 +1512,14 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
         std::vector<std::string> bnames;
         loadSchema(node.tableId, bschema, bnames);
         names = bnames;
-        auto acc = gatherBaseRows(node.tableId, bschema, nullptr);
+        auto acc = gatherJoinInput(node, node.tableId, bschema);
         int accWidth = static_cast<int>(bnames.size());
 
         Schema fschema;
         std::vector<std::string> fnames;
         loadSchema(node.joinTableId, fschema, fnames);
         names.insert(names.end(), fnames.begin(), fnames.end());
-        auto firstRight = gatherBaseRows(node.joinTableId, fschema, nullptr);
+        auto firstRight = gatherJoinInput(node, node.joinTableId, fschema);
         acc = joinTwo(acc, accWidth, firstRight, static_cast<int>(fnames.size()),
                       node.joinType, node.joinOn.get());
         accWidth += static_cast<int>(fnames.size());
@@ -1501,7 +1529,7 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
             std::vector<std::string> jnames;
             loadSchema(jc.tableId, jschema, jnames);
             names.insert(names.end(), jnames.begin(), jnames.end());
-            auto rightRows = gatherBaseRows(jc.tableId, jschema, nullptr);
+            auto rightRows = gatherJoinInput(node, jc.tableId, jschema);
             acc = joinTwo(acc, accWidth, rightRows, static_cast<int>(jnames.size()),
                           jc.kind, jc.on.get());
             accWidth += static_cast<int>(jnames.size());
@@ -1527,8 +1555,8 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
         const int leftWidth = static_cast<int>(lnames.size());
         const int rightWidth = static_cast<int>(rnames.size());
 
-        auto leftRows = gatherBaseRows(node.tableId, lschema, nullptr);
-        auto rightRows = gatherBaseRows(node.joinTableId, rschema, nullptr);
+        auto leftRows = gatherJoinInput(node, node.tableId, lschema);
+        auto rightRows = gatherJoinInput(node, node.joinTableId, rschema);
 
         const std::vector<Value> nullRight(rightWidth, Value::null());
 

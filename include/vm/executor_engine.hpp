@@ -64,6 +64,9 @@ private:
         parser::SelectStatement& node, const Schema& schema,
         parser::Expression* where);
 
+    std::vector<std::pair<RecordID, std::vector<Value>>> gatherJoinInput(
+        parser::SelectStatement& node, int tableId, const Schema& schema);
+
     std::vector<std::pair<RecordID, std::vector<Value>>> joinTwo(
         const std::vector<std::pair<RecordID, std::vector<Value>>>& leftRows,
         int leftWidth,

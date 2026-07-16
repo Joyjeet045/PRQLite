@@ -383,6 +383,28 @@ void run() {
         assert(r3.rows.size() == 1 && r3.rows[0][0].intValue == 500);
     }
 
+    /* Join time travel: AS OF applies to every table in a multi-table query. */
+    {
+        h.run("BUILD RELATION jdept (id INT, dname TEXT);");
+        h.run("BUILD RELATION jemp (id INT, did INT, nm TEXT);");
+        h.run("PUT INTO jdept VALUES (1,'eng'),(2,'sales');");
+        h.run("PUT INTO jemp VALUES (1,1,'a'),(2,2,'b');");
+        unsigned long long jv = h.se.versions().currentVersion();
+        h.run("MODIFY jdept SET dname = 'ENG' WHEN id = 1;");
+
+        auto live = h.run(
+            "FETCH jemp.nm, jdept.dname FROM jemp LINK jdept ON jemp.did = jdept.id "
+            "SORT BY jemp.nm;");
+        assert(live.rows.size() == 2 && live.rows[0][1].textValue == "ENG" &&
+               live.rows[1][1].textValue == "sales");
+
+        auto past = h.run(
+            "FETCH jemp.nm, jdept.dname FROM jemp AS OF " + std::to_string(jv) +
+            " LINK jdept ON jemp.did = jdept.id SORT BY jemp.nm;");
+        assert(past.rows.size() == 2 && past.rows[0][1].textValue == "eng" &&
+               past.rows[1][1].textValue == "sales");
+    }
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");

@@ -255,8 +255,8 @@ Notes / intentional limitations
     statement (autocommit) or transaction advances a global version by one;
     version 0 is the empty state before any change. History is garbage-collected
     into per-table baselines (AS OF before the GC horizon is clamped to the
-    baseline) and is persisted across restarts. Time travel covers a single
-    table (no joins).
+    baseline) and is persisted across restarts. AS OF placed on the FROM table
+    applies to every table joined in the query (all read as of that version).
   * Between START and SAVE/UNDO a transaction reads a snapshot: single-table
     FETCHes see the committed state as of START plus the transaction's own
     writes, so a change another transaction commits meanwhile stays invisible.
