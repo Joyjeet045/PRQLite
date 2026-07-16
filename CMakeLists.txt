@@ -25,6 +25,7 @@ add_library(relite_core
     src/vm/table_manager.cpp
     src/vm/version_store.cpp
     src/vm/vectorized.cpp
+    src/vm/optimizer.cpp
     src/vm/expression_eval.cpp
     src/vm/executor.cpp
     src/vm/executor_engine.cpp
@@ -115,3 +116,7 @@ add_test(NAME disk_index_test COMMAND disk_index_test)
 add_executable(recovery_test tests/recovery_test.cpp)
 target_link_libraries(recovery_test PRIVATE relite_core)
 add_test(NAME recovery_test COMMAND recovery_test)
+
+add_executable(optimizer_test tests/optimizer_test.cpp)
+target_link_libraries(optimizer_test PRIVATE relite_core)
+add_test(NAME optimizer_test COMMAND optimizer_test)

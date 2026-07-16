@@ -15,6 +15,7 @@
 
 #include "vm/executor.hpp"
 #include "vm/expression_eval.hpp"
+#include "vm/optimizer.hpp"
 #include "vm/vectorized.hpp"
 
 namespace db::vm {
@@ -1301,6 +1302,15 @@ void ExecutorEngine::runWindowQuery(parser::SelectStatement& node) {
     }
 }
 
+std::size_t ExecutorEngine::estimateRows(int tableId) {
+    Schema schema;
+    std::vector<std::string> names;
+    loadSchema(tableId, schema, names);
+    std::size_t n = 0;
+    for (TableIterator it(&storage_.tables(), tableId); it.valid(); it.next()) ++n;
+    return n;
+}
+
 void ExecutorEngine::explainSelect(parser::SelectStatement& node) {
     result_.isQuery = true;
     result_.columns = {"plan"};
@@ -1345,7 +1355,14 @@ void ExecutorEngine::explainSelect(parser::SelectStatement& node) {
         }
         bool hash =
             node.joinType == parser::SelectStatement::JoinKind::Inner && equi;
-        emit(std::string(kind) + (hash ? " Join (Hash)" : " Join (Nested Loop)"));
+        std::string algoLabel = " Join (Nested Loop)";
+        if (hash) {
+            CostModel cm;
+            JoinAlgorithm algo = cm.chooseEquiJoin(estimateRows(node.tableId),
+                                                   estimateRows(node.joinTableId));
+            algoLabel = (algo == JoinAlgorithm::Merge) ? " Join (Merge)" : " Join (Hash)";
+        }
+        emit(std::string(kind) + algoLabel);
         ++depth;
         emit("Seq Scan on " + (lt ? lt->name : std::string("?")));
         emit("Seq Scan on " + (rt ? rt->name : std::string("?")));
@@ -1598,23 +1615,41 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
             const bool inner =
                 node.joinType == parser::SelectStatement::JoinKind::Inner;
             if (inner && leftKey >= 0 && rightKey >= 0) {
-                std::unordered_map<std::string, std::vector<const std::vector<Value>*>> ht;
-                for (auto& rp : rightRows) {
-                    const Value& kv = rp.second[rightKey];
-                    if (kv.isNull()) continue;
-                    ht[keyOf(kv)].push_back(&rp.second);
-                }
-                for (auto& lp : leftRows) {
-                    const Value& kv = lp.second[leftKey];
-                    if (kv.isNull()) continue;
-                    auto it = ht.find(keyOf(kv));
-                    if (it == ht.end()) continue;
-                    for (const std::vector<Value>* rrow : it->second) {
-                        std::vector<Value> combined = lp.second;
-                        combined.insert(combined.end(), rrow->begin(), rrow->end());
+                CostModel cm;
+                JoinAlgorithm algo =
+                    cm.chooseEquiJoin(leftRows.size(), rightRows.size());
+                if (algo == JoinAlgorithm::Merge) {
+                    std::vector<std::vector<Value>> lv, rv;
+                    lv.reserve(leftRows.size());
+                    for (auto& lp : leftRows) lv.push_back(std::move(lp.second));
+                    rv.reserve(rightRows.size());
+                    for (auto& rp : rightRows) rv.push_back(std::move(rp.second));
+                    std::vector<std::vector<Value>> joined =
+                        mergeJoinInner(std::move(lv), leftKey, std::move(rv), rightKey);
+                    for (auto& combined : joined) {
                         Tuple ct(combined);
                         if (node.where && !predicateTrue(*node.where, ct)) continue;
                         rows.emplace_back(RecordID{}, std::move(combined));
+                    }
+                } else {
+                    std::unordered_map<std::string, std::vector<const std::vector<Value>*>> ht;
+                    for (auto& rp : rightRows) {
+                        const Value& kv = rp.second[rightKey];
+                        if (kv.isNull()) continue;
+                        ht[keyOf(kv)].push_back(&rp.second);
+                    }
+                    for (auto& lp : leftRows) {
+                        const Value& kv = lp.second[leftKey];
+                        if (kv.isNull()) continue;
+                        auto it = ht.find(keyOf(kv));
+                        if (it == ht.end()) continue;
+                        for (const std::vector<Value>* rrow : it->second) {
+                            std::vector<Value> combined = lp.second;
+                            combined.insert(combined.end(), rrow->begin(), rrow->end());
+                            Tuple ct(combined);
+                            if (node.where && !predicateTrue(*node.where, ct)) continue;
+                            rows.emplace_back(RecordID{}, std::move(combined));
+                        }
                     }
                 }
             } else {

@@ -79,6 +79,7 @@ private:
 
     void explainSelect(parser::SelectStatement& node);
     void runWindowQuery(parser::SelectStatement& node);
+    std::size_t estimateRows(int tableId);
     bool isVectorizableAggregate(const parser::SelectStatement& node) const;
     bool tryVectorizedAggregate(parser::SelectStatement& node, const Schema& schema);
 

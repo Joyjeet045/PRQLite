@@ -405,6 +405,41 @@ void run() {
                past.rows[1][1].textValue == "sales");
     }
 
+    /* Cost-based join: large inputs pick a sort-merge join (EXPLAIN shows it)
+     * and produce the same result a hash join would. */
+    {
+        h.run("BUILD RELATION ml (k INT, lv INT);");
+        h.run("BUILD RELATION mr (k INT, rv INT);");
+        std::string li = "PUT INTO ml VALUES ";
+        std::string ri = "PUT INTO mr VALUES ";
+        const int m = 10001;
+        for (int i = 0; i < m; ++i) {
+            if (i) {
+                li += ',';
+                ri += ',';
+            }
+            li += "(" + std::to_string(i) + "," + std::to_string(i * 2) + ")";
+            ri += "(" + std::to_string(i) + "," + std::to_string(i * 3) + ")";
+        }
+        li += ';';
+        ri += ';';
+        h.run(li);
+        h.run(ri);
+
+        auto ex = h.run("EXPLAIN FETCH ml.k FROM ml LINK mr ON ml.k = mr.k;");
+        bool sawMerge = false;
+        for (auto& r : ex.rows) {
+            if (r[0].textValue.find("Merge") != std::string::npos) sawMerge = true;
+        }
+        assert(sawMerge);
+
+        auto joined = h.run(
+            "FETCH ml.k, ml.lv, mr.rv FROM ml LINK mr ON ml.k = mr.k SORT BY ml.k;");
+        assert(joined.rows.size() == static_cast<std::size_t>(m));
+        assert(joined.rows[5][0].intValue == 5 && joined.rows[5][1].intValue == 10 &&
+               joined.rows[5][2].intValue == 15);
+    }
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");

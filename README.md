@@ -46,7 +46,10 @@ The full keyword vocabulary and SQL-to-Relite mapping are in
 **Engine internals**
 - Hand-written lexer + recursive-descent parser (precedence climbing) → AST (visitor pattern)
 - Semantic analyzer binding names/types against a per-database catalog
-- Volcano/iterator execution engine with a first-pass optimizer (index range scans) and hash join
+- Volcano/iterator execution engine with a cost-based optimizer: index range
+  scans, and a cardinality-driven choice between hash and sort-merge join (the
+  latter backed by an external merge sort that spills to disk); `EXPLAIN` shows
+  the chosen algorithm
 - Push-based, batch-at-a-time vectorized path (columnar batches + selection
   vectors) for ungrouped aggregates, alongside the Volcano engine; `EXPLAIN`
   marks it as `Aggregate (Vectorized)`
@@ -89,7 +92,7 @@ Type `\h` for help and `\q` to quit.
 
 ## Tests
 
-Fourteen self-contained suites run via CTest:
+Fifteen self-contained suites run via CTest:
 
 ```sh
 ctest --test-dir build --output-on-failure
@@ -145,4 +148,4 @@ harness locally for your own baseline.
 ## Roadmap
 
 Larger items not yet implemented: serializable isolation with predicate locking,
-and a cost-based optimizer with merge join and external-sort spill.
+and a columnar storage format for the vectorized engine.
