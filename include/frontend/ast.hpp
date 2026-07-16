@@ -297,6 +297,15 @@ public:
     int joinTableId = -1;
     JoinKind joinType = JoinKind::Inner;
 
+    struct JoinClause {
+        JoinKind kind = JoinKind::Inner;
+        std::string table;
+        std::string alias;
+        ExpressionPtr on;
+        int tableId = -1;
+    };
+    std::vector<JoinClause> extraJoins;
+
     int tableId = -1;
 
     void accept(ASTVisitor& visitor) override;

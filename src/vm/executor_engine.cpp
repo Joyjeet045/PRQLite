@@ -243,6 +243,106 @@ std::vector<std::pair<RecordID, std::vector<Value>>> ExecutorEngine::gatherBaseR
     return gatherRows(tableId, schema, where);
 }
 
+std::vector<std::pair<RecordID, std::vector<Value>>> ExecutorEngine::joinTwo(
+    const std::vector<std::pair<RecordID, std::vector<Value>>>& leftRows,
+    int leftWidth,
+    const std::vector<std::pair<RecordID, std::vector<Value>>>& rightRows,
+    int rightWidth, parser::SelectStatement::JoinKind kind, parser::Expression* on) {
+    using JK = parser::SelectStatement::JoinKind;
+    std::vector<std::pair<RecordID, std::vector<Value>>> rows;
+    const std::vector<Value> nullRight(rightWidth, Value::null());
+
+    if (kind == JK::Cross) {
+        for (auto& lp : leftRows) {
+            for (auto& rp : rightRows) {
+                std::vector<Value> combined = lp.second;
+                combined.insert(combined.end(), rp.second.begin(), rp.second.end());
+                rows.emplace_back(RecordID{}, std::move(combined));
+            }
+        }
+        return rows;
+    }
+
+    int leftKey = -1;
+    int rightKey = -1;
+    if (auto* bin = dynamic_cast<parser::BinaryExpr*>(on)) {
+        if (bin->op == parser::ComparisonOp::Eq) {
+            auto* a = dynamic_cast<parser::ColumnRef*>(bin->left.get());
+            auto* b = dynamic_cast<parser::ColumnRef*>(bin->right.get());
+            if (a != nullptr && b != nullptr) {
+                int ai = a->columnIndex;
+                int bi = b->columnIndex;
+                if (ai < leftWidth && bi >= leftWidth) {
+                    leftKey = ai;
+                    rightKey = bi - leftWidth;
+                } else if (bi < leftWidth && ai >= leftWidth) {
+                    leftKey = bi;
+                    rightKey = ai - leftWidth;
+                }
+            }
+        }
+    }
+    auto keyOf = [](const Value& v) {
+        return std::to_string(static_cast<int>(v.type)) + ':' + v.toString();
+    };
+
+    if (kind == JK::Inner && leftKey >= 0 && rightKey >= 0) {
+        std::unordered_map<std::string, std::vector<const std::vector<Value>*>> ht;
+        for (auto& rp : rightRows) {
+            const Value& kv = rp.second[rightKey];
+            if (kv.isNull()) continue;
+            ht[keyOf(kv)].push_back(&rp.second);
+        }
+        for (auto& lp : leftRows) {
+            const Value& kv = lp.second[leftKey];
+            if (kv.isNull()) continue;
+            auto it = ht.find(keyOf(kv));
+            if (it == ht.end()) continue;
+            for (const std::vector<Value>* rrow : it->second) {
+                std::vector<Value> combined = lp.second;
+                combined.insert(combined.end(), rrow->begin(), rrow->end());
+                rows.emplace_back(RecordID{}, std::move(combined));
+            }
+        }
+        return rows;
+    }
+
+    const bool keepLeft = kind == JK::Left || kind == JK::Full;
+    const bool keepRight = kind == JK::Right || kind == JK::Full;
+    std::vector<char> rightMatched(rightRows.size(), 0);
+    for (auto& lp : leftRows) {
+        bool matched = false;
+        for (std::size_t ri = 0; ri < rightRows.size(); ++ri) {
+            std::vector<Value> combined = lp.second;
+            combined.insert(combined.end(), rightRows[ri].second.begin(),
+                            rightRows[ri].second.end());
+            if (on != nullptr) {
+                Tuple ct(combined);
+                if (!predicateTrue(*on, ct)) continue;
+            }
+            matched = true;
+            rightMatched[ri] = 1;
+            rows.emplace_back(RecordID{}, std::move(combined));
+        }
+        if (!matched && keepLeft) {
+            std::vector<Value> combined = lp.second;
+            combined.insert(combined.end(), nullRight.begin(), nullRight.end());
+            rows.emplace_back(RecordID{}, std::move(combined));
+        }
+    }
+    if (keepRight) {
+        const std::vector<Value> nullLeft(leftWidth, Value::null());
+        for (std::size_t ri = 0; ri < rightRows.size(); ++ri) {
+            if (rightMatched[ri]) continue;
+            std::vector<Value> combined = nullLeft;
+            combined.insert(combined.end(), rightRows[ri].second.begin(),
+                            rightRows[ri].second.end());
+            rows.emplace_back(RecordID{}, std::move(combined));
+        }
+    }
+    return rows;
+}
+
 bool ExecutorEngine::indexCandidates(parser::Expression* where, int tableId,
                                      std::vector<RecordID>& rids) {
     using namespace parser;
@@ -924,10 +1024,49 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
     materializeSubqueries(node.where.get());
     materializeSubqueries(node.having.get());
     materializeSubqueries(node.joinOn.get());
+    for (auto& jc : node.extraJoins) materializeSubqueries(jc.on.get());
     std::vector<std::string> names;
     std::vector<std::pair<RecordID, std::vector<Value>>> rows;
 
-    if (!node.joinTable.empty()) {
+    if (!node.joinTable.empty() && !node.extraJoins.empty()) {
+        Schema bschema;
+        std::vector<std::string> bnames;
+        loadSchema(node.tableId, bschema, bnames);
+        names = bnames;
+        auto acc = gatherBaseRows(node.tableId, bschema, nullptr);
+        int accWidth = static_cast<int>(bnames.size());
+
+        Schema fschema;
+        std::vector<std::string> fnames;
+        loadSchema(node.joinTableId, fschema, fnames);
+        names.insert(names.end(), fnames.begin(), fnames.end());
+        auto firstRight = gatherBaseRows(node.joinTableId, fschema, nullptr);
+        acc = joinTwo(acc, accWidth, firstRight, static_cast<int>(fnames.size()),
+                      node.joinType, node.joinOn.get());
+        accWidth += static_cast<int>(fnames.size());
+
+        for (auto& jc : node.extraJoins) {
+            Schema jschema;
+            std::vector<std::string> jnames;
+            loadSchema(jc.tableId, jschema, jnames);
+            names.insert(names.end(), jnames.begin(), jnames.end());
+            auto rightRows = gatherBaseRows(jc.tableId, jschema, nullptr);
+            acc = joinTwo(acc, accWidth, rightRows, static_cast<int>(jnames.size()),
+                          jc.kind, jc.on.get());
+            accWidth += static_cast<int>(jnames.size());
+        }
+
+        if (node.where) {
+            std::vector<std::pair<RecordID, std::vector<Value>>> filtered;
+            for (auto& pr : acc) {
+                Tuple t(pr.second);
+                if (predicateTrue(*node.where, t)) filtered.push_back(std::move(pr));
+            }
+            rows = std::move(filtered);
+        } else {
+            rows = std::move(acc);
+        }
+    } else if (!node.joinTable.empty()) {
         Schema lschema, rschema;
         std::vector<std::string> lnames, rnames;
         loadSchema(node.tableId, lschema, lnames);

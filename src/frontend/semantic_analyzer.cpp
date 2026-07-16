@@ -94,6 +94,42 @@ void SemanticAnalyzer::visit(parser::ColumnRef& node) {
         node.columnIndex = -1;
         return;
     }
+    if (nWayJoin_) {
+        if (!node.table.empty()) {
+            for (const auto& sc : joinScopes_) {
+                if (node.table == sc.schema->name ||
+                    (!sc.alias.empty() && node.table == sc.alias)) {
+                    int idx = sc.schema->columnIndex(node.column);
+                    if (idx < 0) {
+                        throw SemanticError("unknown column '" + node.column +
+                                            "' in table '" + node.table + "'");
+                    }
+                    node.columnIndex = sc.offset + idx;
+                    node.resolvedType = sc.schema->columns[idx].type;
+                    return;
+                }
+            }
+            throw SemanticError("unknown table qualifier '" + node.table + "'");
+        }
+        int foundIdx = -1;
+        const JoinScope* foundScope = nullptr;
+        for (const auto& sc : joinScopes_) {
+            int idx = sc.schema->columnIndex(node.column);
+            if (idx >= 0) {
+                if (foundScope != nullptr) {
+                    throw SemanticError("ambiguous column '" + node.column + "'");
+                }
+                foundIdx = idx;
+                foundScope = &sc;
+            }
+        }
+        if (foundScope == nullptr) {
+            throw SemanticError("unknown column '" + node.column + "'");
+        }
+        node.columnIndex = foundScope->offset + foundIdx;
+        node.resolvedType = foundScope->schema->columns[foundIdx].type;
+        return;
+    }
     if (joinMode_) {
         if (!node.table.empty()) {
             if (node.table == leftTable_->name ||
@@ -544,6 +580,59 @@ void SemanticAnalyzer::visit(parser::InsertStatement& node) {
 }
 
 void SemanticAnalyzer::visit(parser::SelectStatement& node) {
+    if (!node.joinTable.empty() && !node.extraJoins.empty()) {
+        if (!node.aggregates.empty()) {
+            throw SemanticError("aggregates are not supported with JOIN");
+        }
+        joinScopes_.clear();
+        int offset = 0;
+        auto addScope = [&](const std::string& tname,
+                            const std::string& alias) -> const TableSchema* {
+            const TableSchema* t = catalog_.getTable(tname);
+            if (t == nullptr) throw SemanticError("unknown table '" + tname + "'");
+            joinScopes_.push_back({t, alias, offset});
+            offset += static_cast<int>(t->columns.size());
+            return t;
+        };
+        const TableSchema* base = addScope(node.table, node.tableAlias);
+        const TableSchema* first = addScope(node.joinTable, node.joinTableAlias);
+        node.tableId = base->tableId;
+        node.joinTableId = first->tableId;
+        for (auto& jc : node.extraJoins) {
+            const TableSchema* jt = addScope(jc.table, jc.alias);
+            jc.tableId = jt->tableId;
+        }
+
+        nWayJoin_ = true;
+        if (!node.selectStar) {
+            for (auto& col : node.columns) col->accept(*this);
+        }
+        for (auto& key : node.orderBy) key.column->accept(*this);
+        if (node.joinOn) {
+            node.joinOn->accept(*this);
+            if (node.joinOn->resolvedType != DataType::Bool) {
+                throw SemanticError("JOIN ON must be a boolean expression");
+            }
+        }
+        for (auto& jc : node.extraJoins) {
+            if (jc.on) {
+                jc.on->accept(*this);
+                if (jc.on->resolvedType != DataType::Bool) {
+                    throw SemanticError("JOIN ON must be a boolean expression");
+                }
+            }
+        }
+        if (node.where) {
+            node.where->accept(*this);
+            if (node.where->resolvedType != DataType::Bool) {
+                throw SemanticError("WHERE clause must be a boolean expression");
+            }
+        }
+        nWayJoin_ = false;
+        joinScopes_.clear();
+        return;
+    }
+
     if (!node.joinTable.empty()) {
         const TableSchema* left = catalog_.getTable(node.table);
         if (left == nullptr) throw SemanticError("unknown table '" + node.table + "'");

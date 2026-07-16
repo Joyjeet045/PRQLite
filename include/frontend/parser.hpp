@@ -53,6 +53,7 @@ private:
     ASTNodePtr parseInsert();
     ASTNodePtr parseSelect();
     ASTNodePtr parseSelectStatement();
+    SelectStatement::JoinClause parseJoinClause();
     ASTNodePtr parseDelete();
     ASTNodePtr parseUpdate();
     ASTNodePtr parseDrop();

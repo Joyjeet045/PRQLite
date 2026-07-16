@@ -376,6 +376,33 @@ ASTNodePtr Parser::parseInsert() {
     return stmt;
 }
 
+SelectStatement::JoinClause Parser::parseJoinClause() {
+    SelectStatement::JoinClause jc;
+    if (match(TokenType::LEFT)) {
+        consume(TokenType::JOIN, "LINK");
+        jc.kind = SelectStatement::JoinKind::Left;
+    } else if (match(TokenType::RIGHT)) {
+        consume(TokenType::JOIN, "LINK");
+        jc.kind = SelectStatement::JoinKind::Right;
+    } else if (match(TokenType::FULL)) {
+        consume(TokenType::JOIN, "LINK");
+        jc.kind = SelectStatement::JoinKind::Full;
+    } else if (match(TokenType::CROSS)) {
+        consume(TokenType::JOIN, "LINK");
+        jc.kind = SelectStatement::JoinKind::Cross;
+    } else {
+        consume(TokenType::JOIN, "LINK");
+        jc.kind = SelectStatement::JoinKind::Inner;
+    }
+    jc.table = consume(TokenType::IDENTIFIER, "table name").lexeme;
+    jc.alias = parseOptionalAlias();
+    if (jc.kind != SelectStatement::JoinKind::Cross) {
+        consume(TokenType::ON, "ON");
+        jc.on = parseExpression();
+    }
+    return jc;
+}
+
 ASTNodePtr Parser::parseSelectStatement() {
     ASTNodePtr node = parseSelect();
     while (check(TokenType::UNION) || check(TokenType::INTERSECT) ||
@@ -477,6 +504,12 @@ ASTNodePtr Parser::parseSelect() {
         stmt->joinTableAlias = parseOptionalAlias();
         consume(TokenType::ON, "ON");
         stmt->joinOn = parseExpression();
+    }
+
+    while (check(TokenType::LEFT) || check(TokenType::RIGHT) ||
+           check(TokenType::FULL) || check(TokenType::CROSS) ||
+           check(TokenType::JOIN)) {
+        stmt->extraJoins.push_back(parseJoinClause());
     }
 
     if (match(TokenType::WHERE)) {

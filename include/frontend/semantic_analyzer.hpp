@@ -59,6 +59,14 @@ private:
     int leftColumnCount_ = 0;
     bool joinMode_ = false;
 
+    struct JoinScope {
+        const TableSchema* schema = nullptr;
+        std::string alias;
+        int offset = 0;
+    };
+    std::vector<JoinScope> joinScopes_;
+    bool nWayJoin_ = false;
+
     void checkPredicate(parser::Expression& expr);
 };
 

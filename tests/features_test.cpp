@@ -250,6 +250,23 @@ void run() {
     assert(h.run("FETCH id FROM eng2 WHEN sal > 150;").rows[0][0].intValue == 2);
     assert(h.run("FETCH COUNT(*) AS n FROM eng2;").rows[0][0].intValue == 2);
 
+    /* Multi-way (3+ table) joins chain left-associatively. */
+    h.run("BUILD RELATION ja (id INT, name TEXT);");
+    h.run("BUILD RELATION jb (id INT, aid INT, val INT);");
+    h.run("BUILD RELATION jc (id INT, bid INT, tag TEXT);");
+    h.run("PUT INTO ja VALUES (1,'x'),(2,'y');");
+    h.run("PUT INTO jb VALUES (10,1,100),(20,2,200);");
+    h.run("PUT INTO jc VALUES (100,10,'p'),(200,20,'q');");
+    auto mj = h.run(
+        "FETCH ja.name, jc.tag FROM ja LINK jb ON ja.id = jb.aid "
+        "LINK jc ON jb.id = jc.bid SORT BY ja.id;");
+    assert(mj.rows.size() == 2 && mj.rows[0][0].textValue == "x" &&
+           mj.rows[0][1].textValue == "p" && mj.rows[1][1].textValue == "q");
+    auto mjw = h.run(
+        "FETCH ja.name FROM ja LINK jb ON ja.id = jb.aid "
+        "LINK jc ON jb.id = jc.bid WHEN jb.val > 150;");
+    assert(mjw.rows.size() == 1 && mjw.rows[0][0].textValue == "y");
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");

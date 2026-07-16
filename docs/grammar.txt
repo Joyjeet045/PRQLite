@@ -119,7 +119,7 @@ Statements
   setOp       := "UNION" [ "ALL" ] | "INTERSECT" | "EXCEPT" ;
   selectCore  := "FETCH" [ "UNIQUEONLY" ] ( "*" | fetchItem { "," fetchItem } )
                  "FROM" ident [ alias ]
-                 [ linkClause ]
+                 { linkClause }
                  [ "WHEN"   expression ]
                  [ "GROUP" "BY" columnRef { "," columnRef } ]
                  [ "HAVING" expression ]
