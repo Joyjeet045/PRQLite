@@ -440,6 +440,26 @@ void run() {
                joined.rows[5][2].intValue == 15);
     }
 
+    /* PUT INTO ... DEFAULT VALUES inserts one row of column defaults. */
+    {
+        h.run("BUILD RELATION dv (id INT AUTO_INCREMENT, n INT DEFAULT 7, "
+              "s TEXT DEFAULT 'x');");
+        h.run("PUT INTO dv DEFAULT VALUES;");
+        auto d = h.run("FETCH id, n, s FROM dv;");
+        assert(d.rows.size() == 1 && d.rows[0][0].intValue == 1 &&
+               d.rows[0][1].intValue == 7 && d.rows[0][2].textValue == "x");
+    }
+
+    /* DISCARD VIEW drops a view (and only a view). */
+    {
+        h.run("BUILD RELATION vsrc (id INT, v INT);");
+        h.run("PUT INTO vsrc VALUES (1,10),(2,20);");
+        h.run("BUILD VIEW vv AS FETCH id FROM vsrc WHEN v > 15;");
+        assert(semantic::Catalog::instance().hasTable("vv"));
+        h.run("DISCARD VIEW vv;");
+        assert(!semantic::Catalog::instance().hasTable("vv"));
+    }
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");

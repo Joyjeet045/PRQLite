@@ -112,7 +112,9 @@ Statements
                | "BUILD" "VIEW" ident "AS" fetchStmt ;
 
   putStmt     := "PUT" "INTO" ident [ "(" ident { "," ident } ")" ]
-                 ( "VALUES" valueRow { "," valueRow } | fetchStmt ) ;
+                 ( "VALUES" valueRow { "," valueRow }
+                 | "DEFAULT" "VALUES"
+                 | fetchStmt ) ;
   valueRow    := "(" literal { "," literal } ")" ;   ; values are literals only
 
   fetchStmt   := [ "EXPLAIN" ] selectCore { setOp selectCore } ;
@@ -148,7 +150,7 @@ Statements
                  [ "WHEN" expression ] ;
   assignment  := ident "=" expression ;
 
-  discardStmt := "DISCARD" ( "RELATION" ident | "INDEX" ident ) ;
+  discardStmt := "DISCARD" ( "RELATION" ident | "VIEW" ident | "INDEX" ident ) ;
 
   reshapeStmt := "RESHAPE" "RELATION" ident
                  ( "ADD" [ "COLUMN" ] columnDef

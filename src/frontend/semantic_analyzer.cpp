@@ -613,6 +613,7 @@ void SemanticAnalyzer::visit(parser::InsertStatement& node) {
     }
 
     for (auto& row : node.rows) {
+        if (node.defaultValues) break;
         if (row.size() != targets.size()) {
             throw SemanticError("INSERT has " + std::to_string(row.size()) +
                                 " value(s) but " + std::to_string(targets.size()) +
@@ -824,7 +825,12 @@ void SemanticAnalyzer::visit(parser::DropStatement& node) {
     } else {
         const TableSchema* t = catalog_.getTable(node.name);
         if (t == nullptr) {
-            throw SemanticError("unknown table '" + node.name + "'");
+            throw SemanticError(std::string("unknown ") +
+                                (node.isView ? "view '" : "table '") + node.name +
+                                "'");
+        }
+        if (node.isView && !t->isView) {
+            throw SemanticError("'" + node.name + "' is not a view");
         }
         node.tableId = t->tableId;
         catalog_.dropTable(node.name);

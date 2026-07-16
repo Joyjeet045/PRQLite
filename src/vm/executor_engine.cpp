@@ -2004,6 +2004,8 @@ void ExecutorEngine::visit(parser::DropStatement& node) {
     if (node.isIndex) {
         storage_.indexes().drop(node.name);
         result_.message = "DISCARD INDEX";
+    } else if (node.isView) {
+        result_.message = "DISCARD VIEW";
     } else {
         storage_.tables().dropTable(node.tableId);
         storage_.indexes().dropTable(node.tableId);

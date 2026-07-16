@@ -362,6 +362,13 @@ ASTNodePtr Parser::parseInsert() {
         return stmt;
     }
 
+    if (match(TokenType::DEFAULT)) {
+        consume(TokenType::VALUES, "VALUES");
+        stmt->defaultValues = true;
+        stmt->rows.emplace_back();
+        return stmt;
+    }
+
     consume(TokenType::VALUES, "VALUES");
     do {
         consume(TokenType::LPAREN, "'('");
@@ -650,8 +657,11 @@ ASTNodePtr Parser::parseDrop() {
     } else if (match(TokenType::INDEX)) {
         stmt->isIndex = true;
         stmt->name = consume(TokenType::IDENTIFIER, "index name").lexeme;
+    } else if (match(TokenType::VIEW)) {
+        stmt->isView = true;
+        stmt->name = consume(TokenType::IDENTIFIER, "view name").lexeme;
     } else {
-        error(peek(), "expected RELATION or INDEX after DISCARD");
+        error(peek(), "expected RELATION, INDEX, or VIEW after DISCARD");
     }
     return stmt;
 }

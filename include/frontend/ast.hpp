@@ -281,6 +281,7 @@ public:
     std::vector<std::string> columns;
     std::vector<std::vector<ExpressionPtr>> rows;
     std::unique_ptr<SelectStatement> select;
+    bool defaultValues = false;
 
     int tableId = -1;
 
@@ -360,6 +361,7 @@ public:
 class DropStatement : public ASTNode {
 public:
     bool isIndex = false;
+    bool isView = false;
     std::string name;
 
     int tableId = -1;
