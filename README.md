@@ -1,73 +1,91 @@
 # Relite
 
-[![CI](https://github.com/Joyjeet045/Relite/actions/workflows/ci.yml/badge.svg)](https://github.com/Joyjeet045/Relite/actions/workflows/ci.yml)
-
-A relational database built from scratch in modern C++ (C++20). Relite implements the
-full stack of a small single-node RDBMS: a front-end for its **own query language**
-(Relite QL, not SQL), a Volcano-model execution engine, a paged storage engine with a
-buffer pool, B+ tree indexing, and ACID transactions with write-ahead logging and crash
-recovery.
-
-It runs as an interactive REPL and persists data across restarts.
+Relite is a single-node relational database implemented from scratch in C++20. It
+provides a complete database stack: a query language with a hand-written front end, a
+Volcano-model execution engine, a cost-based optimizer, a paged storage engine with a
+buffer pool, disk-backed B+ tree indexing, and ACID transactions with write-ahead
+logging and crash recovery. It runs as an interactive REPL and persists data across
+restarts.
 
 ## Features
 
-**Query language (Relite QL, not SQL)**
-- Definitions: `BUILD RELATION` / `BUILD INDEX` (single- or multi-column) / `BUILD VIEW`,
-  `DISCARD RELATION` / `DISCARD INDEX`, `RESHAPE RELATION ADD/DISCARD COLUMN`
-- Data changes: `PUT INTO` (including `PUT INTO t FETCH ...`), `MODIFY`, `REMOVE`
-- Queries: `FETCH` with projection (arithmetic such as `price * qty`, column/table
-  aliases via `AS`), `WHEN` (`=, !=, <, <=, >, >=`, `+ - * /`, `AND/OR/NOT`,
-  `IS [NOT] NULL`, `[NOT] IN`, `BETWEEN`, `LIKE`), inner/`LEFT`/`RIGHT`/`FULL`/`CROSS`
-  `LINK` joins (chained for 3+ tables), `GROUP BY`/`HAVING` (including aggregates in
-  `HAVING`), aggregates (`COUNT/SUM/AVG/MIN/MAX`), `UNIQUEONLY`, `SORT BY`,
-  `TAKE ... SKIP` (limit/offset), and correlated or uncorrelated scalar/`IN`/`EXISTS`
-  subqueries (in `WHEN`, the `FETCH` list, and `MODIFY`/`REMOVE`)
-- Window functions: `fn() OVER (PARTITION BY ... SORT BY ...)` with `ROW_NUMBER`,
-  `RANK`, `DENSE_RANK`, and partition-total `SUM/COUNT/AVG/MIN/MAX`
-- Scalar functions & expressions: `UPPER/LOWER/LENGTH/SUBSTR/TRIM`, `ABS/ROUND/MOD/CEIL/FLOOR`,
-  `COALESCE/NULLIF`, `CAST(x AS type)`, and `CASE WHEN ... THEN ... ELSE ... END`
-- Set operations: `UNION` / `UNION ALL` / `INTERSECT` / `EXCEPT`
-- `EXPLAIN FETCH ...` prints the query plan tree (scan/index, join algorithm, sort, limit)
-- Column types: `INT` (aka `BIGINT`/`SMALLINT`), `FLOAT` (aka `DOUBLE`/`REAL`),
-  `DECIMAL(p,s)`/`NUMERIC`, `BOOL`, `TEXT`, `VARCHAR(n)`, `DATE`, `TIMESTAMP`
-- Constraints: `PRIMARY KEY`, `UNIQUE`, `NOT NULL`, `DEFAULT`, `CHECK`, `AUTO_INCREMENT`,
-  foreign keys (`REFERENCES ... ON REMOVE CASCADE / SET NULL / RESTRICT`), and
-  `VARCHAR(n)` length enforcement
-- Views: `BUILD VIEW v AS FETCH ...` (definition persisted across restarts;
-  materialized on read)
-- Time travel: `FETCH ... FROM t AS OF <version>` reads a table as of a past
-  logical version (MVCC snapshot); every committed write advances the version
-- Transactions: `START` / `SAVE` / `UNDO` (snapshot-isolated reads)
+### Data definition
+- Tables: `BUILD RELATION`, and `BUILD RELATION t AS FETCH ...` to build a table from a
+  query result
+- Indexes: `BUILD INDEX` on one or more columns
+- Views: `BUILD VIEW v AS FETCH ...`, with the definition persisted across restarts and
+  materialized on read
+- Schema changes: `RESHAPE RELATION ADD COLUMN` and `DISCARD COLUMN`
+- Removal: `DISCARD RELATION` / `DISCARD INDEX` / `DISCARD VIEW`, and `TRUNCATE RELATION`
+- Column types: `INT` (`BIGINT`, `SMALLINT`), `FLOAT` (`DOUBLE`, `REAL`),
+  `DECIMAL(p,s)` / `NUMERIC`, `BOOL`, `TEXT`, `VARCHAR(n)`, `DATE`, `TIMESTAMP`
+- Constraints: `PRIMARY KEY` (single-column and composite), `UNIQUE`, `NOT NULL`,
+  `DEFAULT`, `CHECK`, `AUTO_INCREMENT`, `VARCHAR(n)` length enforcement, and foreign
+  keys with `REFERENCES ... ON REMOVE` and `ON MODIFY` actions (`CASCADE`, `SET NULL`,
+  `RESTRICT`)
 
-The full keyword vocabulary and SQL-to-Relite mapping are in
-[docs/grammar.txt](docs/grammar.txt).
+### Data manipulation
+- `PUT INTO`: multi-row `VALUES`, `DEFAULT VALUES`, and `PUT INTO t FETCH ...` to insert
+  from a query
+- Conflict handling: `PUT INTO t VALUES (...) ON CONFLICT (col) DO MODIFY SET ...` or
+  `DO NOTHING`
+- `MODIFY` with `SET` assignments, including `MODIFY t SET ... FROM u WHEN ...` to update
+  a table joined against another
+- `REMOVE` with `WHEN` predicates
+- `RETURNING` on `PUT`, `MODIFY`, and `REMOVE` to return the affected rows
 
-**Engine internals**
-- Hand-written lexer + recursive-descent parser (precedence climbing) → AST (visitor pattern)
-- Semantic analyzer binding names/types against a per-database catalog
-- Volcano/iterator execution engine with a cost-based optimizer: index range
-  scans, and a cardinality-driven choice between hash and sort-merge join (the
-  latter backed by an external merge sort that spills to disk); `EXPLAIN` shows
-  the chosen algorithm
-- Push-based, batch-at-a-time vectorized path for ungrouped aggregates, backed
-  by a cached typed **columnar** store (contiguous primitive arrays + null
-  bitmaps) so analytical aggregates run as tight loops; `EXPLAIN` marks it as
-  `Aggregate (Vectorized)`
-- 4 KB slotted pages, disk manager, LRU buffer pool with page guards, page compaction
-- Page-resident (disk-backed) B+ tree indexes — nodes live in buffer-pool pages
-  and are evictable rather than held wholly in RAM — plus Bloom filters
-- Write-ahead log with `fsync` durability, group-commit, and checkpointing;
-  ARIES-style recovery (analysis → redo → undo) with per-page LSNs and
-  idempotent redo, so committed work survives even under a no-force buffer policy
-- Row-level lock manager (two-phase locking, shared/exclusive) exercised under
-  real threads, and a transaction manager with undo
-- Snapshot isolation: a transaction reads a stable snapshot (committed state at
-  its start plus its own writes); single-table reads are served lock-free from
-  the version store
-- Multiversion store for snapshot reads / `AS OF` time travel, kept beside the
-  heap; history is garbage-collected into per-table baselines and persisted
-  across restarts
+### Queries
+- `FETCH` with projection, arithmetic such as `price * qty`, and column or table aliases
+  via `AS`
+- `WHEN` predicates: comparisons, arithmetic, `AND` / `OR` / `NOT`, `IS [NOT] NULL`,
+  `[NOT] IN`, `BETWEEN`, `LIKE`
+- Joins: inner, `LEFT`, `RIGHT`, `FULL`, and `CROSS` via `LINK`, chained across three or
+  more tables
+- Grouping: `GROUP BY`, `HAVING` (aggregates permitted), and
+  `COUNT` / `SUM` / `AVG` / `MIN` / `MAX`
+- `UNIQUEONLY` (distinct), `SORT BY`, and `TAKE ... SKIP` (limit and offset)
+- Subqueries: scalar, `IN`, and `EXISTS`, correlated or uncorrelated, usable in `WHEN`,
+  the `FETCH` list, and `MODIFY` / `REMOVE`
+- Window functions: `ROW_NUMBER`, `RANK`, `DENSE_RANK`, and
+  `SUM` / `COUNT` / `AVG` / `MIN` / `MAX` `OVER (PARTITION BY ... SORT BY ...)`
+- Scalar functions: `UPPER`, `LOWER`, `LENGTH`, `SUBSTR`, `TRIM`, `ABS`, `ROUND`, `MOD`,
+  `CEIL`, `FLOOR`, `COALESCE`, `NULLIF`, `CAST(x AS type)`, and
+  `CASE WHEN ... THEN ... ELSE ... END`
+- Set operations: `UNION`, `UNION ALL`, `INTERSECT`, `EXCEPT`
+- `EXPLAIN FETCH ...` prints the query plan tree, including the chosen scan and join
+  algorithms, sort, and limit
+
+### Transactions and isolation
+- `START` / `SAVE` / `UNDO` for begin, commit, and rollback
+- Snapshot isolation: a transaction reads a stable snapshot of committed state together
+  with its own writes
+- Time travel: `FETCH ... FROM t AS OF <version>` reads a table at a past logical
+  version; every committed write advances the version
+
+## Architecture
+
+- Front end: a hand-written lexer and recursive-descent parser (precedence climbing)
+  producing an AST that is traversed with the visitor pattern, and a semantic analyzer
+  that binds names and types against a per-database catalog
+- Execution: a Volcano/iterator engine with a cost-based optimizer that selects index
+  range scans and, by cardinality, between hash join and sort-merge join. The sort-merge
+  path uses an external merge sort that spills to disk, and `EXPLAIN` reports the chosen
+  plan
+- Vectorized aggregation: a push-based, batch-at-a-time path for ungrouped aggregates,
+  backed by a cached typed columnar store of contiguous primitive arrays with null
+  bitmaps. `EXPLAIN` marks it as `Aggregate (Vectorized)`
+- Storage: 4 KB slotted pages, a disk manager, and an LRU buffer pool with page guards
+  and page compaction
+- Indexing: page-resident, disk-backed B+ tree indexes whose nodes live in buffer-pool
+  pages and are evictable, together with Bloom filters
+- Durability: a write-ahead log with `fsync`, group commit, and checkpointing. Recovery
+  follows ARIES (analysis, redo, undo) with per-page LSNs and idempotent redo, so
+  committed work survives under a no-force buffer policy
+- Concurrency: a row-level lock manager (two-phase locking, shared and exclusive)
+  exercised under real threads, with a transaction manager that maintains undo
+- Multiversion store: snapshot reads and `AS OF` time travel are served from a version
+  store kept beside the heap. History is garbage-collected into per-table baselines and
+  persisted across restarts
 
 ## Build
 
@@ -110,19 +128,19 @@ include/ , src/
   index/      B+ tree, bloom filter, index manager
   txn/        WAL, lock manager, transaction manager
 tests/        unit + integration suites
-docs/         grammar.txt (SQL grammar reference)
+docs/         grammar.txt (grammar reference)
 ```
 
 ## Grammar
 
-The accepted query language (and its SQL-to-Relite keyword mapping) is documented in
-[docs/grammar.txt](docs/grammar.txt). The authoritative grammar is the recursive-descent
-parser in `src/frontend/parser.cpp`.
+The accepted grammar is documented in [docs/grammar.txt](docs/grammar.txt). The
+authoritative definition is the recursive-descent parser in
+`src/frontend/parser.cpp`.
 
 ## Benchmarks
 
 A self-contained harness (`tools/benchmark.cpp`) drives the same
-lexer → parser → analyzer → executor pipeline the REPL uses, against a real
+lexer, parser, analyzer, and executor pipeline the REPL uses, against a real
 storage engine, WAL, and lock manager.
 
 ```sh
@@ -141,14 +159,13 @@ laptop; 50K-row table):
 | Scan + aggregate (`COUNT`/`SUM`)  | ~15M+ rows/s    | ~2 ms / 50K    |
 | Durable commit (`fsync` per txn)  | ~1K commits/s   | ~1 ms/commit   |
 
-Insert/lookup figures are end-to-end (they include SQL parsing and planning on
-every statement, plus multiversion bookkeeping for time travel); point lookups
-go through the page-resident B+ tree. The scan + aggregate figure uses the
-columnar vectorized path — the first scan builds a typed column cache and
-subsequent aggregates run as tight loops over primitive arrays (an order of
-magnitude faster than the row path). Commit throughput is bounded by `fsync`.
-Throughput is sensitive to background load and dataset size — run the harness
-locally for your own baseline.
+Insert and lookup figures are end-to-end. They include parsing and planning on every
+statement, plus multiversion bookkeeping for time travel, and point lookups go through
+the page-resident B+ tree. The scan and aggregate figure uses the columnar vectorized
+path: the first scan builds a typed column cache, and subsequent aggregates run as tight
+loops over primitive arrays, roughly an order of magnitude faster than the row path.
+Commit throughput is bounded by `fsync`. Throughput is sensitive to background load and
+dataset size, so run the harness locally for your own baseline.
 
 ## Roadmap
 
