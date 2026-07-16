@@ -51,6 +51,9 @@ const std::unordered_map<std::string, TokenType>& keywordTable() {
         {"RESHAPE", TokenType::ALTER},   {"ADD", TokenType::ADD},
         {"TRUNCATE", TokenType::TRUNCATE},
         {"RETURNING", TokenType::RETURNING},
+        {"CONFLICT", TokenType::CONFLICT},
+        {"DO", TokenType::DO},
+        {"NOTHING", TokenType::NOTHING},
         {"COLUMN", TokenType::COLUMN},   {"REFERENCES", TokenType::REFERENCES},
         {"FOREIGN", TokenType::FOREIGN}, {"KEY", TokenType::KEY},
         {"PRIMARY", TokenType::PRIMARY}, {"UNIQUE", TokenType::UNIQUE},
@@ -260,6 +263,9 @@ std::string_view tokenTypeName(TokenType type) {
         case TokenType::ALTER: return "ALTER";
         case TokenType::TRUNCATE: return "TRUNCATE";
         case TokenType::RETURNING: return "RETURNING";
+        case TokenType::CONFLICT: return "CONFLICT";
+        case TokenType::DO: return "DO";
+        case TokenType::NOTHING: return "NOTHING";
         case TokenType::ADD: return "ADD";
         case TokenType::COLUMN: return "COLUMN";
         case TokenType::REFERENCES: return "REFERENCES";

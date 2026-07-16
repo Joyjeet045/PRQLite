@@ -1104,6 +1104,37 @@ void ExecutorEngine::visit(parser::InsertStatement& node) {
     int count = 0;
     const bool wantReturn = node.returningStar || !node.returning.empty();
     std::vector<std::vector<Value>> returned;
+
+    std::vector<int> conflictIdx;
+    for (auto& col : node.conflictColumns) conflictIdx.push_back(col->columnIndex);
+    std::vector<int> setIdx;
+    for (auto& nm : node.conflictSetColumns) {
+        setIdx.push_back(ts != nullptr ? ts->columnIndex(nm) : -1);
+    }
+    auto findConflict = [&](const Tuple& cand, RecordID& outRid,
+                            std::vector<Value>& outRow) -> bool {
+        SeqScanExecutor scan(&storage_.tables(), node.tableId, schema);
+        scan.init();
+        Tuple t;
+        RecordID rid;
+        while (scan.next(t, rid)) {
+            bool allEq = true;
+            for (int ci : conflictIdx) {
+                auto c = compareValues(t.at(ci), cand.at(ci));
+                if (!c.has_value() || *c != 0) {
+                    allEq = false;
+                    break;
+                }
+            }
+            if (allEq) {
+                outRid = rid;
+                outRow = t.values();
+                return true;
+            }
+        }
+        return false;
+    };
+
     for (auto& provided : providedRows) {
         std::vector<Value> vals(ncols, Value::null());
         std::vector<bool> isSet(ncols, false);
@@ -1126,6 +1157,76 @@ void ExecutorEngine::visit(parser::InsertStatement& node) {
             }
         }
         Tuple tup(std::move(vals));
+        if (node.hasOnConflict) {
+            RecordID exRid;
+            std::vector<Value> exRow;
+            if (findConflict(tup, exRid, exRow)) {
+                if (node.conflictDoNothing) continue;
+                Tuple oldTup(exRow);
+                std::vector<Value> newVals = exRow;
+                for (std::size_t i = 0; i < setIdx.size(); ++i) {
+                    newVals[setIdx[i]] =
+                        evalExpression(*node.conflictSetValues[i], oldTup);
+                }
+                Tuple newTup(newVals);
+                if (ts != nullptr) {
+                    checkForeignKeys(*ts, newTup.values());
+                    enforceConstraints(*ts, node.tableId, newTup.values(), &exRid);
+                }
+                if (txnActive()) lockOrThrow(exRid, /*exclusive=*/true);
+                std::string oldBytes = oldTup.serialize(schema);
+                std::string newBytes = newTup.serialize(schema);
+                for (index::Index* idx : tableIndexes) {
+                    if (idx->coversRow(oldTup.size())) {
+                        idx->remove(idx->keyOf(oldTup.values()), exRid);
+                    }
+                }
+                RecordID nr =
+                    storage_.tables().updateTuple(node.tableId, exRid, newBytes);
+                if (txnActive()) lockOrThrow(nr, /*exclusive=*/true);
+                for (index::Index* idx : tableIndexes) {
+                    if (idx->coversRow(newTup.size())) {
+                        idx->add(idx->keyOf(newTup.values()), nr);
+                    }
+                }
+                storage_.versions().stageDelete(node.tableId, exRid);
+                storage_.versions().stageInsert(node.tableId, nr, newBytes);
+                if (txnActive()) {
+                    StorageEngine* se = &storage_;
+                    int tid = node.tableId;
+                    txnMgr_->logDelete(*currentTxn_, tid, exRid, oldBytes);
+                    txnMgr_->logInsert(*currentTxn_, tid, nr, newBytes);
+                    std::vector<std::pair<index::Index*, Value>> oldKeys, newKeys;
+                    for (index::Index* idx : tableIndexes) {
+                        if (idx->coversRow(oldTup.size())) {
+                            oldKeys.emplace_back(idx, idx->keyOf(oldTup.values()));
+                            newKeys.emplace_back(idx, idx->keyOf(newTup.values()));
+                        }
+                    }
+                    txnMgr_->registerUndo(*currentTxn_,
+                        [se, tid, nr, oldBytes, oldKeys, newKeys] {
+                            for (const auto& [idx, key] : newKeys) idx->remove(key, nr);
+                            se->tables().eraseTuple(tid, nr);
+                            RecordID rr = se->tables().insertTuple(tid, oldBytes);
+                            for (const auto& [idx, key] : oldKeys) idx->add(key, rr);
+                        });
+                }
+                if (wantReturn) {
+                    if (node.returningStar) {
+                        returned.push_back(newTup.values());
+                    } else {
+                        std::vector<Value> proj;
+                        proj.reserve(node.returning.size());
+                        for (auto& col : node.returning) {
+                            proj.push_back(newTup.at(col->columnIndex));
+                        }
+                        returned.push_back(std::move(proj));
+                    }
+                }
+                ++count;
+                continue;
+            }
+        }
         if (ts != nullptr) {
             checkForeignKeys(*ts, tup.values());
             enforceConstraints(*ts, node.tableId, tup.values(), nullptr);

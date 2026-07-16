@@ -114,10 +114,12 @@ Statements
                | "BUILD" "VIEW" ident "AS" fetchStmt ;
 
   putStmt     := "PUT" "INTO" ident [ "(" ident { "," ident } ")" ]
-                 ( "VALUES" valueRow { "," valueRow }
+                 ( "VALUES" valueRow { "," valueRow } [ onConflict ]
                  | "DEFAULT" "VALUES"
                  | fetchStmt ) [ returning ] ;
   valueRow    := "(" literal { "," literal } ")" ;   ; values are literals only
+  onConflict  := "ON" "CONFLICT" "(" columnRef { "," columnRef } ")" "DO"
+                 ( "NOTHING" | "MODIFY" "SET" assignment { "," assignment } ) ;
   returning   := "RETURNING" ( "*" | columnRef { "," columnRef } ) ;
 
   fetchStmt   := [ "EXPLAIN" ] selectCore { setOp selectCore } ;

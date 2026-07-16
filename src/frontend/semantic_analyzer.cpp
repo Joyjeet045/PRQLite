@@ -674,6 +674,28 @@ void SemanticAnalyzer::visit(parser::InsertStatement& node) {
         }
     }
 
+    if (node.hasOnConflict) {
+        for (auto& col : node.conflictColumns) {
+            col->accept(*this);
+            if (col->columnIndex < 0) {
+                throw SemanticError("unknown conflict column '" + col->column + "'");
+            }
+            const ColumnSchema& c = table->columns[col->columnIndex];
+            if (!(c.primaryKey || c.unique)) {
+                throw SemanticError("ON CONFLICT target '" + c.name +
+                                    "' must be UNIQUE or PRIMARY KEY");
+            }
+        }
+        for (std::size_t i = 0; i < node.conflictSetColumns.size(); ++i) {
+            int idx = table->columnIndex(node.conflictSetColumns[i]);
+            if (idx < 0) {
+                throw SemanticError("unknown column '" + node.conflictSetColumns[i] +
+                                    "' in DO MODIFY");
+            }
+            node.conflictSetValues[i]->accept(*this);
+        }
+    }
+
     for (auto& col : node.returning) col->accept(*this);
     currentTable_ = nullptr;
 }

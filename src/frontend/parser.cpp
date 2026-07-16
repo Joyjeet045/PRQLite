@@ -397,6 +397,7 @@ ASTNodePtr Parser::parseInsert() {
         stmt->rows.push_back(std::move(row));
     } while (match(TokenType::COMMA));
 
+    parseOnConflict(*stmt);
     parseReturning(stmt->returningStar, stmt->returning);
     return stmt;
 }
@@ -778,6 +779,30 @@ void Parser::parseReturning(bool& star,
     }
     do {
         cols.push_back(parseColumnRef());
+    } while (match(TokenType::COMMA));
+}
+
+void Parser::parseOnConflict(InsertStatement& stmt) {
+    if (!match(TokenType::ON)) return;
+    consume(TokenType::CONFLICT, "CONFLICT");
+    consume(TokenType::LPAREN, "'('");
+    do {
+        stmt.conflictColumns.push_back(parseColumnRef());
+    } while (match(TokenType::COMMA));
+    consume(TokenType::RPAREN, "')'");
+    consume(TokenType::DO, "DO");
+    stmt.hasOnConflict = true;
+    if (match(TokenType::NOTHING)) {
+        stmt.conflictDoNothing = true;
+        return;
+    }
+    consume(TokenType::UPDATE, "MODIFY");
+    consume(TokenType::SET, "SET");
+    do {
+        std::string col = consume(TokenType::IDENTIFIER, "column name").lexeme;
+        consume(TokenType::EQ, "'='");
+        stmt.conflictSetColumns.push_back(std::move(col));
+        stmt.conflictSetValues.push_back(parseExpression());
     } while (match(TokenType::COMMA));
 }
 

@@ -510,6 +510,32 @@ void run() {
         assert(h.run("FETCH id FROM ret;").rows.size() == 2);
     }
 
+    /* UPSERT: ON CONFLICT DO MODIFY updates, DO NOTHING skips. */
+    {
+        h.run("BUILD RELATION up (id INT PRIMARY KEY, v INT, hits INT);");
+        h.run("PUT INTO up VALUES (1,10,0),(2,20,0);");
+        h.run("PUT INTO up VALUES (1,99,0) ON CONFLICT (id) DO MODIFY "
+              "SET v = 99, hits = hits + 1;");
+        auto r1 = h.run("FETCH v, hits FROM up WHEN id = 1;");
+        assert(r1.rows.size() == 1 && r1.rows[0][0].intValue == 99 &&
+               r1.rows[0][1].intValue == 1);
+
+        /* No conflict -> plain insert. */
+        h.run("PUT INTO up VALUES (3,30,0) ON CONFLICT (id) DO NOTHING;");
+        assert(h.run("FETCH id FROM up;").rows.size() == 3);
+
+        /* Conflict -> DO NOTHING leaves the existing row untouched. */
+        h.run("PUT INTO up VALUES (3,999,0) ON CONFLICT (id) DO NOTHING;");
+        auto r3 = h.run("FETCH v FROM up WHEN id = 3;");
+        assert(r3.rows.size() == 1 && r3.rows[0][0].intValue == 30);
+
+        /* UPSERT with RETURNING projects the modified row. */
+        auto rr = h.run("PUT INTO up VALUES (2,20,0) ON CONFLICT (id) DO MODIFY "
+                        "SET v = v + 5 RETURNING id, v;");
+        assert(rr.isQuery && rr.rows.size() == 1 &&
+               rr.rows[0][0].intValue == 2 && rr.rows[0][1].intValue == 25);
+    }
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");

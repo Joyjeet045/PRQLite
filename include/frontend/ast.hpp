@@ -287,6 +287,12 @@ public:
     bool returningStar = false;
     std::vector<std::unique_ptr<ColumnRef>> returning;
 
+    bool hasOnConflict = false;
+    bool conflictDoNothing = false;
+    std::vector<std::unique_ptr<ColumnRef>> conflictColumns;
+    std::vector<std::string> conflictSetColumns;
+    std::vector<ExpressionPtr> conflictSetValues;
+
     int tableId = -1;
 
     void accept(ASTVisitor& visitor) override;

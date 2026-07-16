@@ -65,6 +65,7 @@ private:
     std::unique_ptr<FunctionExpr> parseAggregate();
     std::string parseOptionalAlias();
     void parseReturning(bool& star, std::vector<std::unique_ptr<ColumnRef>>& cols);
+    void parseOnConflict(InsertStatement& stmt);
     ExpressionPtr parseCase();
     ExpressionPtr parseCall();
     void parseWindowSpec(WindowExpr& win);
