@@ -45,6 +45,7 @@ enum class TokenType {
     ELSE,
     END,
     EXPLAIN,
+    VIEW,
     AS,
     ASC,
     DESC,

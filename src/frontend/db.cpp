@@ -160,7 +160,11 @@ void DB::saveCatalog() {
         out << "RELITE7\n";
         out << cat.nextTableId() << "\n";
 
-        auto tables = cat.allTables();
+        auto allTables = cat.allTables();
+        std::vector<const semantic::TableSchema*> tables;
+        for (const semantic::TableSchema* ts : allTables) {
+            if (!ts->isView) tables.push_back(ts);
+        }
         out << tables.size() << "\n";
         for (const semantic::TableSchema* ts : tables) {
             out << ts->tableId << " " << ts->name << " " << ts->columns.size() << "\n";

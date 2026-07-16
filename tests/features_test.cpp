@@ -242,6 +242,14 @@ void run() {
     }
     assert(idxScan);
 
+    /* Views: a stored query is materialized and outer clauses apply on top. */
+    h.run("BUILD RELATION emp2 (id INT, dept TEXT, sal INT);");
+    h.run("PUT INTO emp2 VALUES (1,'eng',100),(2,'eng',200),(3,'sa',150);");
+    h.run("BUILD VIEW eng2 AS FETCH id, sal FROM emp2 WHEN dept = 'eng';");
+    assert(h.run("FETCH id FROM eng2 SORT BY id;").rows.size() == 2);
+    assert(h.run("FETCH id FROM eng2 WHEN sal > 150;").rows[0][0].intValue == 2);
+    assert(h.run("FETCH COUNT(*) AS n FROM eng2;").rows[0][0].intValue == 2);
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");

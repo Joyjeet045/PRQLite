@@ -32,6 +32,7 @@ public:
     void visit(parser::AlterStatement& node) override;
     void visit(parser::TransactionStatement& node) override;
     void visit(parser::SetOpStatement& node) override;
+    void visit(parser::CreateViewStatement& node) override;
 
     void visit(parser::LiteralExpr&) override {}
     void visit(parser::ColumnRef&) override {}
@@ -53,6 +54,9 @@ private:
     bool txnActive() const { return currentTxn_ != nullptr && *currentTxn_ != 0; }
 
     std::vector<std::pair<RecordID, std::vector<Value>>> gatherRows(
+        int tableId, const Schema& schema, parser::Expression* where);
+
+    std::vector<std::pair<RecordID, std::vector<Value>>> gatherBaseRows(
         int tableId, const Schema& schema, parser::Expression* where);
 
     bool indexCandidates(parser::Expression* where, int tableId,

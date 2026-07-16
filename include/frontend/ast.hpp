@@ -367,6 +367,16 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
+class CreateViewStatement : public ASTNode {
+public:
+    std::string name;
+    std::shared_ptr<SelectStatement> query;
+
+    int tableId = -1;
+
+    void accept(ASTVisitor& visitor) override;
+};
+
 class ASTVisitor {
 public:
     virtual ~ASTVisitor() = default;
@@ -396,6 +406,7 @@ public:
     virtual void visit(AlterStatement& node) = 0;
     virtual void visit(TransactionStatement& node) = 0;
     virtual void visit(SetOpStatement& node) = 0;
+    virtual void visit(CreateViewStatement& node) = 0;
 };
 
 }

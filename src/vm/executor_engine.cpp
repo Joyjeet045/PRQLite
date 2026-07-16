@@ -223,6 +223,26 @@ std::vector<std::pair<RecordID, std::vector<Value>>> ExecutorEngine::gatherRows(
     return rows;
 }
 
+std::vector<std::pair<RecordID, std::vector<Value>>> ExecutorEngine::gatherBaseRows(
+    int tableId, const Schema& schema, parser::Expression* where) {
+    const semantic::TableSchema* ts = catalog_.getTableById(tableId);
+    if (ts != nullptr && ts->isView && ts->viewQuery) {
+        ResultSet saved = std::move(result_);
+        ResultSet viewResult = run(*ts->viewQuery);
+        result_ = std::move(saved);
+        std::vector<std::pair<RecordID, std::vector<Value>>> rows;
+        for (auto& row : viewResult.rows) {
+            if (where != nullptr) {
+                Tuple t(row);
+                if (!predicateTrue(*where, t)) continue;
+            }
+            rows.emplace_back(RecordID{}, std::move(row));
+        }
+        return rows;
+    }
+    return gatherRows(tableId, schema, where);
+}
+
 bool ExecutorEngine::indexCandidates(parser::Expression* where, int tableId,
                                      std::vector<RecordID>& rids) {
     using namespace parser;
@@ -917,8 +937,8 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
         const int leftWidth = static_cast<int>(lnames.size());
         const int rightWidth = static_cast<int>(rnames.size());
 
-        auto leftRows = gatherRows(node.tableId, lschema, nullptr);
-        auto rightRows = gatherRows(node.joinTableId, rschema, nullptr);
+        auto leftRows = gatherBaseRows(node.tableId, lschema, nullptr);
+        auto rightRows = gatherBaseRows(node.joinTableId, rschema, nullptr);
 
         const std::vector<Value> nullRight(rightWidth, Value::null());
 
@@ -1026,7 +1046,7 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
         loadSchema(node.tableId, schema, names);
 
         if (!node.aggregates.empty() || !node.groupBy.empty() || node.having) {
-            auto arows = gatherRows(node.tableId, schema, node.where.get());
+            auto arows = gatherBaseRows(node.tableId, schema, node.where.get());
             std::vector<int> gcols;
             for (const auto& g : node.groupBy) gcols.push_back(g->columnIndex);
 
@@ -1098,7 +1118,7 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
             return;
         }
 
-        rows = gatherRows(node.tableId, schema, node.where.get());
+        rows = gatherBaseRows(node.tableId, schema, node.where.get());
     }
 
     if (!node.orderBy.empty()) {
@@ -1418,6 +1438,11 @@ void ExecutorEngine::visit(parser::SetOpStatement& node) {
     }
 
     result_ = std::move(out);
+}
+
+void ExecutorEngine::visit(parser::CreateViewStatement& node) {
+    (void)node;
+    result_.message = "BUILD VIEW";
 }
 
 }

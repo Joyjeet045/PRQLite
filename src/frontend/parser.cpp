@@ -211,6 +211,16 @@ ASTNodePtr Parser::parseCreate() {
         return stmt;
     }
 
+    if (match(TokenType::VIEW)) {
+        auto stmt = std::make_unique<CreateViewStatement>();
+        stmt->name = consume(TokenType::IDENTIFIER, "view name").lexeme;
+        consume(TokenType::AS, "AS");
+        auto sel = parseSelect();
+        stmt->query = std::shared_ptr<SelectStatement>(
+            dynamic_cast<SelectStatement*>(sel.release()));
+        return stmt;
+    }
+
     if (match(TokenType::INDEX)) {
         auto stmt = std::make_unique<CreateIdxStatement>();
         stmt->indexName = consume(TokenType::IDENTIFIER, "index name").lexeme;

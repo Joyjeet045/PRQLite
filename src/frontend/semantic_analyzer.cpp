@@ -693,6 +693,51 @@ void SemanticAnalyzer::visit(parser::SetOpStatement& node) {
     node.right->accept(*this);
 }
 
+void SemanticAnalyzer::visit(parser::CreateViewStatement& node) {
+    if (catalog_.hasTable(node.name)) {
+        throw SemanticError("relation '" + node.name + "' already exists");
+    }
+    if (!node.query) {
+        throw SemanticError("view '" + node.name + "' has no query");
+    }
+    node.query->accept(*this);
+
+    std::vector<ColumnSchema> cols;
+    const parser::SelectStatement& q = *node.query;
+    if (q.selectStar) {
+        const TableSchema* base = catalog_.getTable(q.table);
+        if (base) {
+            for (const auto& c : base->columns) cols.push_back(c);
+        }
+        if (!q.joinTable.empty()) {
+            const TableSchema* jt = catalog_.getTable(q.joinTable);
+            if (jt) {
+                for (const auto& c : jt->columns) cols.push_back(c);
+            }
+        }
+    } else {
+        int anon = 0;
+        for (const auto& col : q.columns) {
+            ColumnSchema cs;
+            if (!col->alias.empty()) cs.name = col->alias;
+            else if (!col->column.empty()) cs.name = col->column;
+            else cs.name = "col" + std::to_string(anon++);
+            cs.type = col->resolvedType.value_or(DataType::Text);
+            cols.push_back(cs);
+        }
+        for (const auto& fn : q.aggregates) {
+            ColumnSchema cs;
+            cs.name = !fn->alias.empty() ? fn->alias : fn->name;
+            cs.type = fn->resolvedType.value_or(DataType::Int);
+            cols.push_back(cs);
+        }
+    }
+
+    int id = -1;
+    catalog_.createView(node.name, cols, node.query, id);
+    node.tableId = id;
+}
+
 void SemanticAnalyzer::visit(parser::AlterStatement& node) {
     const TableSchema* table = catalog_.getTable(node.table);
     if (table == nullptr) {
