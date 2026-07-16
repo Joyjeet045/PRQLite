@@ -954,6 +954,176 @@ void ExecutorEngine::visit(parser::InsertStatement& node) {
     result_.message = "PUT 0 " + std::to_string(count);
 }
 
+void ExecutorEngine::runWindowQuery(parser::SelectStatement& node) {
+    Schema schema;
+    std::vector<std::string> names;
+    loadSchema(node.tableId, schema, names);
+    auto rows = gatherBaseRows(node.tableId, schema, node.where.get());
+    const int n = static_cast<int>(rows.size());
+
+    auto valKey = [](const Value& v) {
+        return std::to_string(static_cast<int>(v.type)) + ':' + v.toString();
+    };
+
+    std::vector<std::vector<Value>> winValues;
+    for (auto& col : node.columns) {
+        auto* w = col->computed
+                      ? dynamic_cast<parser::WindowExpr*>(col->computed.get())
+                      : nullptr;
+        if (w == nullptr) {
+            winValues.emplace_back();
+            continue;
+        }
+        std::vector<Value> result(static_cast<std::size_t>(n));
+        std::unordered_map<std::string, std::vector<int>> partitions;
+        std::vector<std::string> partOrder;
+        for (int i = 0; i < n; ++i) {
+            std::string k;
+            for (auto& pc : w->partitionBy) {
+                k += valKey(rows[i].second[pc->columnIndex]) + '\x1e';
+            }
+            if (partitions.find(k) == partitions.end()) partOrder.push_back(k);
+            partitions[k].push_back(i);
+        }
+        auto sameOrder = [&](int a, int b) {
+            for (auto& ok : w->orderBy) {
+                const Value& va = rows[a].second[ok.column->columnIndex];
+                const Value& vb = rows[b].second[ok.column->columnIndex];
+                if (valueLess(va, vb) || valueLess(vb, va)) return false;
+            }
+            return true;
+        };
+        for (auto& k : partOrder) {
+            auto& idxs = partitions[k];
+            if (!w->orderBy.empty()) {
+                std::stable_sort(idxs.begin(), idxs.end(), [&](int a, int b) {
+                    for (auto& ok : w->orderBy) {
+                        const Value& va = rows[a].second[ok.column->columnIndex];
+                        const Value& vb = rows[b].second[ok.column->columnIndex];
+                        if (valueLess(va, vb)) return ok.ascending;
+                        if (valueLess(vb, va)) return !ok.ascending;
+                    }
+                    return false;
+                });
+            }
+            const std::string& fn = w->name;
+            if (fn == "ROW_NUMBER") {
+                for (std::size_t r = 0; r < idxs.size(); ++r) {
+                    result[idxs[r]] = Value::makeInt(static_cast<long long>(r) + 1);
+                }
+            } else if (fn == "RANK" || fn == "DENSE_RANK") {
+                long long rank = 0;
+                long long dense = 0;
+                for (std::size_t r = 0; r < idxs.size(); ++r) {
+                    if (r == 0 || !sameOrder(idxs[r - 1], idxs[r])) {
+                        dense++;
+                        rank = static_cast<long long>(r) + 1;
+                    }
+                    result[idxs[r]] = Value::makeInt(fn == "RANK" ? rank : dense);
+                }
+            } else {
+                int argCol = w->argument ? w->argument->columnIndex : -1;
+                double dsum = 0.0;
+                long long isum = 0;
+                long long cnt = 0;
+                bool isFloat = false;
+                Value best = Value::null();
+                for (int idx : idxs) {
+                    if (argCol < 0) {
+                        cnt++;
+                        continue;
+                    }
+                    const Value& v = rows[idx].second[argCol];
+                    if (v.isNull()) continue;
+                    cnt++;
+                    if (v.type == ValueType::Double) {
+                        isFloat = true;
+                        dsum += v.doubleValue;
+                    } else if (v.type == ValueType::Int) {
+                        isum += v.intValue;
+                    }
+                    if (best.isNull()) {
+                        best = v;
+                    } else {
+                        auto c = compareValues(v, best);
+                        if (c.has_value()) {
+                            if (fn == "MIN" && *c < 0) best = v;
+                            if (fn == "MAX" && *c > 0) best = v;
+                        }
+                    }
+                }
+                Value agg;
+                if (fn == "COUNT") {
+                    agg = Value::makeInt(cnt);
+                } else if (fn == "SUM") {
+                    agg = isFloat ? Value::makeDouble(dsum + static_cast<double>(isum))
+                                  : Value::makeInt(isum);
+                } else if (fn == "AVG") {
+                    agg = cnt == 0 ? Value::null()
+                                   : Value::makeDouble((dsum + static_cast<double>(isum)) /
+                                                       static_cast<double>(cnt));
+                } else {
+                    agg = best;
+                }
+                for (int idx : idxs) result[idx] = agg;
+            }
+        }
+        winValues.push_back(std::move(result));
+    }
+
+    for (auto& col : node.columns) {
+        result_.columns.push_back(col->alias.empty() ? col->column : col->alias);
+    }
+
+    std::vector<int> order(static_cast<std::size_t>(n));
+    for (int i = 0; i < n; ++i) order[i] = i;
+    if (!node.orderBy.empty()) {
+        std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+            for (auto& key : node.orderBy) {
+                int ci = key.column->columnIndex;
+                const Value& va = rows[a].second[ci];
+                const Value& vb = rows[b].second[ci];
+                if (valueLess(va, vb)) return key.ascending;
+                if (valueLess(vb, va)) return !key.ascending;
+            }
+            return false;
+        });
+    }
+
+    for (int oi : order) {
+        std::vector<Value> outRow;
+        outRow.reserve(node.columns.size());
+        for (std::size_t c = 0; c < node.columns.size(); ++c) {
+            auto& col = node.columns[c];
+            if (!winValues[c].empty()) {
+                outRow.push_back(winValues[c][oi]);
+                continue;
+            }
+            if (col->computed) {
+                Tuple t(rows[oi].second);
+                outRow.push_back(evalExpression(*col->computed, t));
+                continue;
+            }
+            int ci = col->columnIndex;
+            outRow.push_back((ci >= 0 && ci < static_cast<int>(rows[oi].second.size()))
+                                 ? rows[oi].second[ci]
+                                 : Value::null());
+        }
+        result_.rows.push_back(std::move(outRow));
+    }
+
+    if (node.distinct) dedupeRows(result_.rows);
+    if (node.offset > 0) {
+        std::size_t off = static_cast<std::size_t>(node.offset);
+        if (off >= result_.rows.size()) result_.rows.clear();
+        else result_.rows.erase(result_.rows.begin(), result_.rows.begin() + off);
+    }
+    if (node.hasLimit) {
+        std::size_t lim = node.limit < 0 ? 0 : static_cast<std::size_t>(node.limit);
+        if (result_.rows.size() > lim) result_.rows.resize(lim);
+    }
+}
+
 void ExecutorEngine::explainSelect(parser::SelectStatement& node) {
     result_.isQuery = true;
     result_.columns = {"plan"};
@@ -1025,6 +1195,20 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
     materializeSubqueries(node.having.get());
     materializeSubqueries(node.joinOn.get());
     for (auto& jc : node.extraJoins) materializeSubqueries(jc.on.get());
+
+    bool hasWindow = false;
+    for (auto& col : node.columns) {
+        if (col->computed &&
+            dynamic_cast<parser::WindowExpr*>(col->computed.get()) != nullptr) {
+            hasWindow = true;
+            break;
+        }
+    }
+    if (hasWindow) {
+        runWindowQuery(node);
+        return;
+    }
+
     std::vector<std::string> names;
     std::vector<std::pair<RecordID, std::vector<Value>>> rows;
 

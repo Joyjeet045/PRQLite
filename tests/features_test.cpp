@@ -267,6 +267,19 @@ void run() {
         "LINK jc ON jb.id = jc.bid WHEN jb.val > 150;");
     assert(mjw.rows.size() == 1 && mjw.rows[0][0].textValue == "y");
 
+    /* Window functions: ROW_NUMBER per partition and SUM over a partition. */
+    h.run("BUILD RELATION we (id INT, dept TEXT, sal INT);");
+    h.run("PUT INTO we VALUES (1,'e',100),(2,'e',200),(3,'e',150),(4,'s',300);");
+    auto rn = h.run(
+        "FETCH dept, ROW_NUMBER() OVER (PARTITION BY dept SORT BY sal DESC) AS rn "
+        "FROM we SORT BY dept, sal DESC;");
+    assert(rn.rows.size() == 4 && rn.rows[0][1].intValue == 1 &&
+           rn.rows[1][1].intValue == 2 && rn.rows[2][1].intValue == 3 &&
+           rn.rows[3][1].intValue == 1);
+    auto wsum = h.run(
+        "FETCH dept, SUM(sal) OVER (PARTITION BY dept) AS tot FROM we WHEN dept = 'e';");
+    assert(wsum.rows.size() == 3 && wsum.rows[0][1].intValue == 450);
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");

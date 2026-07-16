@@ -91,7 +91,7 @@ Terminals (lexical)
             LIKE EXISTS EXPLAIN UNION INTERSECT EXCEPT ALL CASE THEN ELSE END
             START SAVE UNDO AND OR NOT INT INTEGER BIGINT SMALLINT FLOAT DOUBLE
             REAL DECIMAL NUMERIC DATE TIMESTAMP DATETIME BOOL BOOLEAN TEXT VARCHAR
-            VIEW TRUE FALSE NULL
+            VIEW OVER PARTITION TRUE FALSE NULL
 
 
 ================================================================================
@@ -125,11 +125,16 @@ Statements
                  [ "HAVING" expression ]
                  [ "SORT" "BY" sortKey { "," sortKey } ]
                  [ "TAKE" integer ] [ "SKIP" integer ] ;
-  fetchItem   := ( aggregate | expression ) [ "AS" ident ] ; ; a bare columnRef
-                                          ; is common; arithmetic/functions are ok
+  fetchItem   := ( windowExpr | aggregate | expression ) [ "AS" ident ] ;
+                                          ; a bare columnRef is common;
+                                          ; arithmetic/functions are ok
   alias       := [ "AS" ] ident ;
   aggregate   := ident "(" [ "UNIQUEONLY" ] ( "*" | columnRef ) ")" ; ; COUNT/SUM/
                                                                       ; AVG/MIN/MAX
+  windowExpr  := windowFn "OVER" "(" [ "PARTITION" "BY" columnRef { "," columnRef } ]
+                                    [ "SORT" "BY" sortKey { "," sortKey } ] ")" ;
+  windowFn    := ( "ROW_NUMBER" | "RANK" | "DENSE_RANK" ) "(" ")"
+               | ( "SUM" | "COUNT" | "AVG" | "MIN" | "MAX" ) "(" columnRef ")" ;
   linkClause  := "LINK" ident [ alias ] "ON" expression   ; inner join
                | "LEFT"  "LINK" ident [ alias ] "ON" expression ; left outer
                | "RIGHT" "LINK" ident [ alias ] "ON" expression ; right outer
@@ -222,10 +227,11 @@ Notes / intentional limitations
     FLOAT the result is a FLOAT. Division by zero yields NULL.
   * PUT ... VALUES accepts literals only (including negative and float
     literals); PUT ... FETCH inserts the rows produced by a query.
-  * LINK is a two-table join. INNER (LINK), LEFT, RIGHT, and FULL LINK require
-    an ON predicate; CROSS LINK takes none and forms the full cartesian product.
-    An INNER equi-join (leftCol = rightCol) is executed as a hash join; the
-    outer joins use a nested loop. Tables may be given an alias (enabling
+  * A FROM may chain several LINK clauses to join more than two tables (the
+    joins are applied left to right). INNER (LINK), LEFT, RIGHT, and FULL LINK
+    require an ON predicate; CROSS LINK takes none and forms the full cartesian
+    product. An INNER equi-join (leftCol = rightCol) is executed as a hash join;
+    the outer joins use a nested loop. Tables may be given an alias (enabling
     self-joins).
   * UNION / UNION ALL / INTERSECT / EXCEPT combine two FETCH cores (left
     associative); all but UNION ALL remove duplicate rows.
@@ -234,6 +240,12 @@ Notes / intentional limitations
     expression. CASE and CAST are expression forms.
   * A view (BUILD VIEW) stores its query and is materialized when referenced in
     a FROM; a multi-column BUILD INDEX is used for equality on all its columns.
+  * Window functions attach OVER (...) to a select item. The ranking functions
+    ROW_NUMBER/RANK/DENSE_RANK take no argument; SUM/COUNT/AVG/MIN/MAX take one
+    column. PARTITION BY splits rows into groups; the window SORT BY orders rows
+    within a partition for the ranking functions. Aggregate windows return the
+    partition total (there is no explicit frame clause). Window queries read a
+    single table.
   * Subqueries are uncorrelated and appear as IN (FETCH ...), EXISTS (FETCH ...),
     or a parenthesized scalar (FETCH ...), including inside MODIFY/REMOVE.
   * A few constructs need two-token lookahead (peekAt(1)):

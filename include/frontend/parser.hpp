@@ -66,6 +66,7 @@ private:
     std::string parseOptionalAlias();
     ExpressionPtr parseCase();
     ExpressionPtr parseCall();
+    void parseWindowSpec(WindowExpr& win);
     DataType parseCastType();
     std::unique_ptr<SelectStatement> parseSubquery();
     ExpressionPtr parseLiteral();

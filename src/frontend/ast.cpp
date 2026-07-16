@@ -133,6 +133,12 @@ std::string expressionToString(const Expression& e) {
         out += " END";
         return out;
     }
+    if (auto* w = dynamic_cast<const WindowExpr*>(&e)) {
+        std::string out = w->name + "(";
+        if (w->argument) out += w->argument->column;
+        out += ") OVER";
+        return out;
+    }
     throw std::runtime_error("unsupported expression in CHECK constraint");
 }
 
@@ -149,6 +155,7 @@ void LikeExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void FunctionExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CallExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CaseExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void WindowExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void SubqueryExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CreateStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CreateIdxStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }

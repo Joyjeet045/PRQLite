@@ -370,6 +370,24 @@ void SemanticAnalyzer::visit(parser::CaseExpr& node) {
     node.resolvedType = resultType;
 }
 
+void SemanticAnalyzer::visit(parser::WindowExpr& node) {
+    if (node.argument) node.argument->accept(*this);
+    for (auto& c : node.partitionBy) c->accept(*this);
+    for (auto& k : node.orderBy) k.column->accept(*this);
+    const std::string& fn = node.name;
+    if (fn == "ROW_NUMBER" || fn == "RANK" || fn == "DENSE_RANK" || fn == "COUNT") {
+        node.resolvedType = DataType::Int;
+    } else if (fn == "SUM" || fn == "MIN" || fn == "MAX") {
+        node.resolvedType =
+            node.argument ? node.argument->resolvedType.value_or(DataType::Int)
+                          : DataType::Int;
+    } else if (fn == "AVG") {
+        node.resolvedType = DataType::Float;
+    } else {
+        throw SemanticError("unknown window function '" + fn + "'");
+    }
+}
+
 void SemanticAnalyzer::visit(parser::SubqueryExpr& node) {
     const TableSchema* savedTable = currentTable_;
     const TableSchema* savedLeft = leftTable_;

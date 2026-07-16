@@ -203,6 +203,20 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
+class WindowExpr : public Expression {
+public:
+    std::string name;
+    std::unique_ptr<ColumnRef> argument;
+    std::vector<std::unique_ptr<ColumnRef>> partitionBy;
+    struct OrderKey {
+        std::unique_ptr<ColumnRef> column;
+        bool ascending = true;
+    };
+    std::vector<OrderKey> orderBy;
+
+    void accept(ASTVisitor& visitor) override;
+};
+
 class SubqueryExpr : public Expression {
 public:
     enum class Kind { Scalar, Exists };
@@ -403,6 +417,7 @@ public:
     virtual void visit(FunctionExpr& node) = 0;
     virtual void visit(CallExpr& node) = 0;
     virtual void visit(CaseExpr& node) = 0;
+    virtual void visit(WindowExpr& node) = 0;
     virtual void visit(SubqueryExpr& node) = 0;
 
     virtual void visit(CreateStatement& node) = 0;

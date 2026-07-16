@@ -38,6 +38,8 @@ enum class TokenType {
     BY,
     GROUP,
     HAVING,
+    OVER,
+    PARTITION,
     LIMIT,
     OFFSET,
     CASE,

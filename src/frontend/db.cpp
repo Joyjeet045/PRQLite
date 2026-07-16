@@ -427,6 +427,8 @@ void DB::run() {
                              "    [NOT] IN, BETWEEN, LIKE), inner/LEFT/RIGHT/FULL/CROSS LINK,\n"
                              "    GROUP BY/HAVING, aggregates (COUNT/SUM/AVG/MIN/MAX),\n"
                              "    UNIQUEONLY, SORT BY, TAKE ... SKIP, subqueries.\n"
+                             "  Window: fn() OVER (PARTITION BY .. SORT BY ..) where fn is\n"
+                             "    ROW_NUMBER/RANK/DENSE_RANK or SUM/COUNT/AVG/MIN/MAX(col).\n"
                              "  Functions: UPPER/LOWER/LENGTH/SUBSTR/TRIM, ABS/ROUND/MOD/CEIL/FLOOR,\n"
                              "    COALESCE/NULLIF, CAST(x AS type), CASE WHEN..THEN..ELSE..END.\n"
                              "  Set ops: UNION [ALL], INTERSECT, EXCEPT.  EXPLAIN FETCH ...\n"

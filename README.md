@@ -19,9 +19,12 @@ It runs as an interactive REPL and persists data across restarts.
 - Queries: `FETCH` with projection (arithmetic such as `price * qty`, column/table
   aliases via `AS`), `WHEN` (`=, !=, <, <=, >, >=`, `+ - * /`, `AND/OR/NOT`,
   `IS [NOT] NULL`, `[NOT] IN`, `BETWEEN`, `LIKE`), inner/`LEFT`/`RIGHT`/`FULL`/`CROSS`
-  `LINK` joins, `GROUP BY`/`HAVING` (including aggregates in `HAVING`), aggregates
-  (`COUNT/SUM/AVG/MIN/MAX`), `UNIQUEONLY`, `SORT BY`, `TAKE ... SKIP` (limit/offset),
-  and uncorrelated scalar/`IN`/`EXISTS` subqueries (also usable in `MODIFY`/`REMOVE`)
+  `LINK` joins (chained for 3+ tables), `GROUP BY`/`HAVING` (including aggregates in
+  `HAVING`), aggregates (`COUNT/SUM/AVG/MIN/MAX`), `UNIQUEONLY`, `SORT BY`,
+  `TAKE ... SKIP` (limit/offset), and uncorrelated scalar/`IN`/`EXISTS` subqueries
+  (also usable in `MODIFY`/`REMOVE`)
+- Window functions: `fn() OVER (PARTITION BY ... SORT BY ...)` with `ROW_NUMBER`,
+  `RANK`, `DENSE_RANK`, and partition-total `SUM/COUNT/AVG/MIN/MAX`
 - Scalar functions & expressions: `UPPER/LOWER/LENGTH/SUBSTR/TRIM`, `ABS/ROUND/MOD/CEIL/FLOOR`,
   `COALESCE/NULLIF`, `CAST(x AS type)`, and `CASE WHEN ... THEN ... ELSE ... END`
 - Set operations: `UNION` / `UNION ALL` / `INTERSECT` / `EXCEPT`
@@ -71,7 +74,7 @@ Type `\h` for help and `\q` to quit.
 
 ## Tests
 
-Ten self-contained suites run via CTest:
+Eleven self-contained suites run via CTest:
 
 ```sh
 ctest --test-dir build --output-on-failure
@@ -100,4 +103,4 @@ parser in `src/frontend/parser.cpp`.
 
 Larger items not yet implemented: ARIES-style redo + `pageLSN`, MVCC / isolation levels,
 a paged (disk-backed) B+ tree, a cost-based optimizer with merge join and external-sort
-spill, multi-way (3+ table) joins, and correlated subqueries.
+spill, and correlated subqueries.

@@ -376,6 +376,28 @@ ASTNodePtr Parser::parseInsert() {
     return stmt;
 }
 
+void Parser::parseWindowSpec(WindowExpr& win) {
+    consume(TokenType::OVER, "OVER");
+    consume(TokenType::LPAREN, "'('");
+    if (match(TokenType::PARTITION)) {
+        consume(TokenType::BY, "BY");
+        do {
+            win.partitionBy.push_back(parseColumnRef());
+        } while (match(TokenType::COMMA));
+    }
+    if (match(TokenType::ORDER)) {
+        consume(TokenType::BY, "BY");
+        do {
+            WindowExpr::OrderKey key;
+            key.column = parseColumnRef();
+            if (match(TokenType::ASC)) key.ascending = true;
+            else if (match(TokenType::DESC)) key.ascending = false;
+            win.orderBy.push_back(std::move(key));
+        } while (match(TokenType::COMMA));
+    }
+    consume(TokenType::RPAREN, "')'");
+}
+
 SelectStatement::JoinClause Parser::parseJoinClause() {
     SelectStatement::JoinClause jc;
     if (match(TokenType::LEFT)) {
@@ -445,25 +467,56 @@ ASTNodePtr Parser::parseSelect() {
             if (check(TokenType::IDENTIFIER) && peekAt(1).type == TokenType::LPAREN &&
                 isAggregateName(peek().lexeme)) {
                 auto fn = parseAggregate();
-                if (match(TokenType::AS)) {
-                    fn->alias = consume(TokenType::IDENTIFIER, "alias").lexeme;
+                if (check(TokenType::OVER)) {
+                    auto win = std::make_unique<WindowExpr>();
+                    win->name = fn->name;
+                    win->argument = std::move(fn->argument);
+                    parseWindowSpec(*win);
+                    auto col = std::make_unique<ColumnRef>();
+                    col->computed = std::move(win);
+                    col->column = "window";
+                    if (match(TokenType::AS)) {
+                        col->alias = consume(TokenType::IDENTIFIER, "alias").lexeme;
+                    }
+                    stmt->columns.push_back(std::move(col));
+                } else {
+                    if (match(TokenType::AS)) {
+                        fn->alias = consume(TokenType::IDENTIFIER, "alias").lexeme;
+                    }
+                    stmt->aggregates.push_back(std::move(fn));
                 }
-                stmt->aggregates.push_back(std::move(fn));
             } else {
                 ExpressionPtr e = parseAdditive();
-                Expression* raw = e.release();
-                std::unique_ptr<ColumnRef> item;
-                if (auto* cr = dynamic_cast<ColumnRef*>(raw)) {
-                    item = std::unique_ptr<ColumnRef>(cr);
+                if (check(TokenType::OVER)) {
+                    auto* call = dynamic_cast<CallExpr*>(e.get());
+                    if (call == nullptr) {
+                        error(peek(), "OVER requires a window function call");
+                    }
+                    auto win = std::make_unique<WindowExpr>();
+                    win->name = call->name;
+                    parseWindowSpec(*win);
+                    auto col = std::make_unique<ColumnRef>();
+                    col->computed = std::move(win);
+                    col->column = "window";
+                    if (match(TokenType::AS)) {
+                        col->alias = consume(TokenType::IDENTIFIER, "alias").lexeme;
+                    }
+                    stmt->columns.push_back(std::move(col));
                 } else {
-                    item = std::make_unique<ColumnRef>();
-                    item->computed = ExpressionPtr(raw);
-                    item->column = expressionToString(*item->computed);
+                    Expression* raw = e.release();
+                    std::unique_ptr<ColumnRef> item;
+                    if (auto* cr = dynamic_cast<ColumnRef*>(raw)) {
+                        item = std::unique_ptr<ColumnRef>(cr);
+                    } else {
+                        item = std::make_unique<ColumnRef>();
+                        item->computed = ExpressionPtr(raw);
+                        item->column = expressionToString(*item->computed);
+                    }
+                    if (match(TokenType::AS)) {
+                        item->alias = consume(TokenType::IDENTIFIER, "alias").lexeme;
+                    }
+                    stmt->columns.push_back(std::move(item));
                 }
-                if (match(TokenType::AS)) {
-                    item->alias = consume(TokenType::IDENTIFIER, "alias").lexeme;
-                }
-                stmt->columns.push_back(std::move(item));
             }
         } while (match(TokenType::COMMA));
     }

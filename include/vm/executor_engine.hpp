@@ -47,6 +47,7 @@ public:
     void visit(parser::FunctionExpr&) override {}
     void visit(parser::CallExpr&) override {}
     void visit(parser::CaseExpr&) override {}
+    void visit(parser::WindowExpr&) override {}
     void visit(parser::SubqueryExpr&) override {}
 
 private:
@@ -70,6 +71,7 @@ private:
                          std::vector<RecordID>& rids);
 
     void explainSelect(parser::SelectStatement& node);
+    void runWindowQuery(parser::SelectStatement& node);
 
     void materializeSubqueries(parser::Expression* expr);
     void materializeSubquery(parser::SubqueryExpr* sub);
