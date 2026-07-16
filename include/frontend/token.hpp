@@ -30,6 +30,7 @@ enum class TokenType {
     UNIQUE,
     DEFAULT,
     CHECK,
+    AUTOINCR,
 
     ORDER,
     BY,

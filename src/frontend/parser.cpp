@@ -253,6 +253,8 @@ ColumnDefinition Parser::parseColumnDefinition() {
             def.primaryKey = true;
         } else if (match(TokenType::UNIQUE)) {
             def.unique = true;
+        } else if (match(TokenType::AUTOINCR)) {
+            def.autoIncrement = true;
         } else if (match(TokenType::NOT)) {
             consume(TokenType::NULL_LITERAL, "NULL");
             def.notNull = true;

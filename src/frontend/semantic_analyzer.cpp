@@ -399,6 +399,10 @@ void SemanticAnalyzer::visit(parser::CreateStatement& node) {
         cs.notNull = def.notNull || def.primaryKey;
         cs.primaryKey = def.primaryKey;
         cs.unique = def.unique || def.primaryKey;
+        cs.autoIncrement = def.autoIncrement;
+        if (def.autoIncrement && def.type != DataType::Int) {
+            throw SemanticError("AUTO_INCREMENT requires an INT column");
+        }
         cs.hasDefault = def.hasDefault;
         cs.defaultValue = def.defaultValue;
         cs.checkExpr = def.checkExpr;

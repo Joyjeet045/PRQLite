@@ -157,7 +157,7 @@ void DB::saveCatalog() {
         out.precision(17);
 
         auto& cat = catalog_;
-        out << "RELITE4\n";
+        out << "RELITE5\n";
         out << cat.nextTableId() << "\n";
 
         auto tables = cat.allTables();
@@ -168,6 +168,7 @@ void DB::saveCatalog() {
                 out << c.name << " " << static_cast<int>(c.type) << " "
                     << c.varcharLength << " " << (c.notNull ? 1 : 0) << " "
                     << (c.primaryKey ? 1 : 0) << " " << (c.unique ? 1 : 0) << " "
+                    << (c.autoIncrement ? 1 : 0) << " "
                     << (c.hasDefault ? 1 : 0) << " "
                     << static_cast<int>(c.defaultValue.kind) << " "
                     << c.defaultValue.intValue << " "
@@ -219,6 +220,7 @@ void DB::loadCatalog() {
     else if (magic == "RELITE2") ver = 2;
     else if (magic == "RELITE3") ver = 3;
     else if (magic == "RELITE4") ver = 4;
+    else if (magic == "RELITE5") ver = 5;
     else return;
 
     auto& cat = catalog_;
@@ -240,12 +242,16 @@ void DB::loadCatalog() {
                 int nn = 0, pk = 0, uq = 0, hd = 0, dk = 0, db = 0;
                 long long dint = 0, tlen = 0;
                 double ddbl = 0.0;
-                in >> nn >> pk >> uq >> hd >> dk >> dint >> db;
+                int ai = 0;
+                in >> nn >> pk >> uq;
+                if (ver >= 5) in >> ai;
+                in >> hd >> dk >> dint >> db;
                 if (ver >= 4) in >> ddbl;
                 in >> tlen;
                 col.notNull = nn != 0;
                 col.primaryKey = pk != 0;
                 col.unique = uq != 0;
+                col.autoIncrement = ai != 0;
                 col.hasDefault = hd != 0;
                 col.defaultValue.kind = static_cast<parser::CachedValue::Kind>(dk);
                 col.defaultValue.intValue = dint;

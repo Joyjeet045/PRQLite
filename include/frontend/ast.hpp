@@ -223,6 +223,7 @@ struct ColumnDefinition {
     bool notNull = false;
     bool primaryKey = false;
     bool unique = false;
+    bool autoIncrement = false;
     bool hasDefault = false;
     CachedValue defaultValue;
     std::shared_ptr<Expression> checkExpr;

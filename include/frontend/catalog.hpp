@@ -17,6 +17,7 @@ struct ColumnSchema {
     bool notNull = false;
     bool primaryKey = false;
     bool unique = false;
+    bool autoIncrement = false;
     bool hasDefault = false;
     parser::CachedValue defaultValue;
 

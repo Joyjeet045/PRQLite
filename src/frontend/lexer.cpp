@@ -18,6 +18,7 @@ const std::unordered_map<std::string, TokenType>& keywordTable() {
         {"REMOVE", TokenType::DELETE},   {"AND", TokenType::AND},
         {"OR", TokenType::OR},           {"NOT", TokenType::NOT},
         {"INT", TokenType::INT_TYPE},    {"INTEGER", TokenType::INT_TYPE},
+        {"BIGINT", TokenType::INT_TYPE}, {"SMALLINT", TokenType::INT_TYPE},
         {"BOOL", TokenType::BOOL_TYPE},  {"BOOLEAN", TokenType::BOOL_TYPE},
         {"TEXT", TokenType::TEXT_TYPE},  {"VARCHAR", TokenType::VARCHAR},
         {"FLOAT", TokenType::FLOAT_TYPE}, {"DOUBLE", TokenType::FLOAT_TYPE},
@@ -45,6 +46,8 @@ const std::unordered_map<std::string, TokenType>& keywordTable() {
         {"FOREIGN", TokenType::FOREIGN}, {"KEY", TokenType::KEY},
         {"PRIMARY", TokenType::PRIMARY}, {"UNIQUE", TokenType::UNIQUE},
         {"DEFAULT", TokenType::DEFAULT}, {"CHECK", TokenType::CHECK},
+        {"AUTO_INCREMENT", TokenType::AUTOINCR},
+        {"SERIAL", TokenType::AUTOINCR},
         {"UNIQUEONLY", TokenType::DISTINCT},
         {"UNION", TokenType::UNION},     {"INTERSECT", TokenType::INTERSECT},
         {"EXCEPT", TokenType::EXCEPT},   {"ALL", TokenType::ALL},
@@ -254,6 +257,7 @@ std::string_view tokenTypeName(TokenType type) {
         case TokenType::UNIQUE: return "UNIQUE";
         case TokenType::DEFAULT: return "DEFAULT";
         case TokenType::CHECK: return "CHECK";
+        case TokenType::AUTOINCR: return "AUTO_INCREMENT";
         case TokenType::DISTINCT: return "DISTINCT";
         case TokenType::ORDER: return "ORDER";
         case TokenType::BY: return "BY";

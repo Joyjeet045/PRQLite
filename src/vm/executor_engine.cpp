@@ -546,6 +546,24 @@ void ExecutorEngine::visit(parser::InsertStatement& node) {
         }
     }
     result_ = ResultSet{};
+
+    std::unordered_map<int, long long> autoNext;
+    if (ts != nullptr) {
+        for (std::size_t c = 0; c < ncols; ++c) {
+            if (!ts->columns[c].autoIncrement) continue;
+            long long maxVal = 0;
+            SeqScanExecutor scan(&storage_.tables(), node.tableId, schema);
+            scan.init();
+            Tuple t;
+            RecordID rid;
+            while (scan.next(t, rid)) {
+                const Value& v = t.at(static_cast<int>(c));
+                if (v.type == ValueType::Int && v.intValue > maxVal) maxVal = v.intValue;
+            }
+            autoNext[static_cast<int>(c)] = maxVal + 1;
+        }
+    }
+
     int count = 0;
     for (auto& provided : providedRows) {
         std::vector<Value> vals(ncols, Value::null());
@@ -553,6 +571,13 @@ void ExecutorEngine::visit(parser::InsertStatement& node) {
         for (std::size_t i = 0; i < provided.size() && i < targets.size(); ++i) {
             vals[targets[i]] = provided[i];
             isSet[targets[i]] = true;
+        }
+        for (auto& [col, next] : autoNext) {
+            if (!isSet[col] || vals[col].isNull()) {
+                vals[col] = Value::makeInt(next);
+                isSet[col] = true;
+                ++next;
+            }
         }
         if (ts != nullptr) {
             for (std::size_t c = 0; c < ncols; ++c) {

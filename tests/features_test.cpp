@@ -184,6 +184,18 @@ void run() {
     h.run("PUT INTO s3 FETCH n FROM s1 WHEN n > 1;");
     assert(h.run("FETCH n FROM s3;").rows.size() == 2);
 
+    /* AUTO_INCREMENT assigns sequential ids; BIGINT is an INT alias. */
+    h.run("BUILD RELATION seq (id INT PRIMARY KEY AUTO_INCREMENT, v BIGINT);");
+    h.run("PUT INTO seq (v) VALUES (10);");
+    h.run("PUT INTO seq (v) VALUES (20);");
+    auto sq = h.run("FETCH id, v FROM seq SORT BY id;");
+    assert(sq.rows.size() == 2 && sq.rows[0][0].intValue == 1 &&
+           sq.rows[1][0].intValue == 2);
+
+    /* UPDATE accepts a subquery in its WHEN clause. */
+    h.run("MODIFY seq SET v = 99 WHEN id IN (FETCH id FROM seq WHEN v = 10);");
+    assert(h.run("FETCH v FROM seq WHEN id = 1;").rows[0][0].intValue == 99);
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");
