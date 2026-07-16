@@ -179,6 +179,28 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
+class CallExpr : public Expression {
+public:
+    std::string name;
+    std::vector<ExpressionPtr> args;
+    DataType castType = DataType::Int;
+    bool isCast = false;
+
+    void accept(ASTVisitor& visitor) override;
+};
+
+class CaseExpr : public Expression {
+public:
+    struct Branch {
+        ExpressionPtr when;
+        ExpressionPtr then;
+    };
+    std::vector<Branch> branches;
+    ExpressionPtr elseExpr;
+
+    void accept(ASTVisitor& visitor) override;
+};
+
 class SubqueryExpr : public Expression {
 public:
     enum class Kind { Scalar, Exists };
@@ -343,6 +365,8 @@ public:
     virtual void visit(BetweenExpr& node) = 0;
     virtual void visit(LikeExpr& node) = 0;
     virtual void visit(FunctionExpr& node) = 0;
+    virtual void visit(CallExpr& node) = 0;
+    virtual void visit(CaseExpr& node) = 0;
     virtual void visit(SubqueryExpr& node) = 0;
 
     virtual void visit(CreateStatement& node) = 0;

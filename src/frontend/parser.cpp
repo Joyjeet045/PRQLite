@@ -48,6 +48,17 @@ bool isLiteralToken(TokenType type) {
     }
 }
 
+std::string upperName(const std::string& s) {
+    std::string out = s;
+    for (char& c : out) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return out;
+}
+
+bool isAggregateName(const std::string& name) {
+    std::string u = upperName(name);
+    return u == "COUNT" || u == "SUM" || u == "AVG" || u == "MIN" || u == "MAX";
+}
+
 }
 
 ParseError::ParseError(std::string message, int line, int column)
@@ -325,13 +336,10 @@ ASTNodePtr Parser::parseSelect() {
         stmt->selectStar = true;
     } else {
         do {
-            if (check(TokenType::IDENTIFIER) && peekAt(1).type == TokenType::LPAREN) {
+            if (check(TokenType::IDENTIFIER) && peekAt(1).type == TokenType::LPAREN &&
+                isAggregateName(peek().lexeme)) {
                 auto fn = std::make_unique<FunctionExpr>();
-                std::string name = advance().lexeme;
-                for (char& c : name) {
-                    c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-                }
-                fn->name = name;
+                fn->name = upperName(advance().lexeme);
                 consume(TokenType::LPAREN, "'('");
                 if (match(TokenType::DISTINCT)) {
                     fn->distinct = true;
@@ -539,6 +547,67 @@ std::string Parser::parseOptionalAlias() {
     return "";
 }
 
+DataType Parser::parseCastType() {
+    const Token& t = peek();
+    switch (t.type) {
+        case TokenType::INT_TYPE: advance(); return DataType::Int;
+        case TokenType::FLOAT_TYPE: advance(); return DataType::Float;
+        case TokenType::BOOL_TYPE: advance(); return DataType::Bool;
+        case TokenType::TEXT_TYPE: advance(); return DataType::Text;
+        case TokenType::VARCHAR:
+            advance();
+            if (match(TokenType::LPAREN)) {
+                consume(TokenType::INTEGER_LITERAL, "VARCHAR length");
+                consume(TokenType::RPAREN, "')'");
+            }
+            return DataType::Varchar;
+        default:
+            error(t, "expected a type in CAST");
+    }
+}
+
+ExpressionPtr Parser::parseCall() {
+    std::string name = upperName(consume(TokenType::IDENTIFIER, "function name").lexeme);
+    consume(TokenType::LPAREN, "'('");
+    auto call = std::make_unique<CallExpr>();
+    call->name = name;
+    if (name == "CAST") {
+        call->isCast = true;
+        call->args.push_back(parseExpression());
+        consume(TokenType::AS, "AS");
+        call->castType = parseCastType();
+        consume(TokenType::RPAREN, "')'");
+        return call;
+    }
+    if (!check(TokenType::RPAREN)) {
+        do {
+            call->args.push_back(parseExpression());
+        } while (match(TokenType::COMMA));
+    }
+    consume(TokenType::RPAREN, "')'");
+    return call;
+}
+
+ExpressionPtr Parser::parseCase() {
+    consume(TokenType::CASE, "CASE");
+    auto node = std::make_unique<CaseExpr>();
+    while (match(TokenType::WHERE)) {
+        CaseExpr::Branch branch;
+        branch.when = parseExpression();
+        consume(TokenType::THEN, "THEN");
+        branch.then = parseAdditive();
+        node->branches.push_back(std::move(branch));
+    }
+    if (node->branches.empty()) {
+        error(peek(), "CASE requires at least one WHEN branch");
+    }
+    if (match(TokenType::ELSE)) {
+        node->elseExpr = parseAdditive();
+    }
+    consume(TokenType::END, "END");
+    return node;
+}
+
 ExpressionPtr Parser::parseLiteral() {
     bool negate = false;
     if ((check(TokenType::MINUS) || check(TokenType::PLUS)) &&
@@ -727,6 +796,12 @@ ExpressionPtr Parser::parseUnary() {
 }
 
 ExpressionPtr Parser::parsePrimary() {
+    if (check(TokenType::CASE)) {
+        return parseCase();
+    }
+    if (check(TokenType::IDENTIFIER) && peekAt(1).type == TokenType::LPAREN) {
+        return parseCall();
+    }
     if (match(TokenType::EXISTS)) {
         consume(TokenType::LPAREN, "'('");
         auto sub = std::make_unique<SubqueryExpr>();

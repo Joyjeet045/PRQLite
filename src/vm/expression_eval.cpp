@@ -1,5 +1,11 @@
 #include "vm/expression_eval.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstdint>
+#include <string>
+
 namespace db::vm {
 
 namespace {
@@ -10,6 +16,129 @@ bool asBool(const Value& v, bool& out) {
         return true;
     }
     return false;
+}
+
+bool isNumeric(const Value& v) {
+    return v.type == ValueType::Int || v.type == ValueType::Double;
+}
+
+double numAsDouble(const Value& v) {
+    return v.type == ValueType::Double ? v.doubleValue
+                                       : static_cast<double>(v.intValue);
+}
+
+std::string valueAsString(const Value& v) {
+    return v.type == ValueType::Text ? v.textValue : v.toString();
+}
+
+Value castValue(const Value& v, parser::DataType target) {
+    if (v.isNull()) return Value::null();
+    switch (target) {
+        case parser::DataType::Int:
+            if (v.type == ValueType::Int) return v;
+            if (v.type == ValueType::Double)
+                return Value::makeInt(static_cast<std::int64_t>(v.doubleValue));
+            if (v.type == ValueType::Bool) return Value::makeInt(v.boolValue ? 1 : 0);
+            if (v.type == ValueType::Text) {
+                try { return Value::makeInt(std::stoll(v.textValue)); }
+                catch (...) { return Value::null(); }
+            }
+            return Value::null();
+        case parser::DataType::Float:
+            if (isNumeric(v)) return Value::makeDouble(numAsDouble(v));
+            if (v.type == ValueType::Text) {
+                try { return Value::makeDouble(std::stod(v.textValue)); }
+                catch (...) { return Value::null(); }
+            }
+            return Value::null();
+        case parser::DataType::Bool:
+            if (v.type == ValueType::Bool) return v;
+            if (v.type == ValueType::Int) return Value::makeBool(v.intValue != 0);
+            return Value::null();
+        case parser::DataType::Text:
+        case parser::DataType::Varchar:
+            return Value::makeText(valueAsString(v));
+    }
+    return Value::null();
+}
+
+Value evalCall(const parser::CallExpr& call, const std::vector<Value>& a) {
+    const std::string& fn = call.name;
+    if (call.isCast) return castValue(a[0], call.castType);
+
+    if (fn == "COALESCE") {
+        for (const Value& v : a)
+            if (!v.isNull()) return v;
+        return Value::null();
+    }
+    if (fn == "NULLIF") {
+        if (a[0].isNull()) return Value::null();
+        auto cmp = compareValues(a[0], a[1]);
+        if (cmp.has_value() && *cmp == 0) return Value::null();
+        return a[0];
+    }
+    if (fn == "UPPER" || fn == "LOWER") {
+        if (a[0].isNull()) return Value::null();
+        std::string s = valueAsString(a[0]);
+        for (char& c : s) {
+            c = static_cast<char>(fn == "UPPER"
+                    ? std::toupper(static_cast<unsigned char>(c))
+                    : std::tolower(static_cast<unsigned char>(c)));
+        }
+        return Value::makeText(s);
+    }
+    if (fn == "LENGTH") {
+        if (a[0].isNull()) return Value::null();
+        return Value::makeInt(static_cast<std::int64_t>(valueAsString(a[0]).size()));
+    }
+    if (fn == "TRIM") {
+        if (a[0].isNull()) return Value::null();
+        std::string s = valueAsString(a[0]);
+        auto notSpace = [](unsigned char c) { return !std::isspace(c); };
+        s.erase(s.begin(), std::find_if(s.begin(), s.end(), notSpace));
+        s.erase(std::find_if(s.rbegin(), s.rend(), notSpace).base(), s.end());
+        return Value::makeText(s);
+    }
+    if (fn == "SUBSTR") {
+        if (a[0].isNull() || a[1].isNull()) return Value::null();
+        std::string s = valueAsString(a[0]);
+        long long start = a[1].intValue;
+        if (start < 1) start = 1;
+        std::size_t from = static_cast<std::size_t>(start - 1);
+        if (from >= s.size()) return Value::makeText("");
+        std::size_t len = s.size() - from;
+        if (a.size() == 3 && !a[2].isNull()) {
+            long long l = a[2].intValue;
+            len = l < 0 ? 0 : static_cast<std::size_t>(l);
+        }
+        return Value::makeText(s.substr(from, len));
+    }
+    if (fn == "ABS") {
+        if (a[0].isNull()) return Value::null();
+        if (a[0].type == ValueType::Double)
+            return Value::makeDouble(std::fabs(a[0].doubleValue));
+        return Value::makeInt(a[0].intValue < 0 ? -a[0].intValue : a[0].intValue);
+    }
+    if (fn == "CEIL" || fn == "FLOOR") {
+        if (a[0].isNull() || !isNumeric(a[0])) return Value::null();
+        double d = numAsDouble(a[0]);
+        double r = (fn == "CEIL") ? std::ceil(d) : std::floor(d);
+        return Value::makeInt(static_cast<std::int64_t>(r));
+    }
+    if (fn == "ROUND") {
+        if (a[0].isNull() || !isNumeric(a[0])) return Value::null();
+        double d = numAsDouble(a[0]);
+        int digits = (a.size() == 2 && !a[1].isNull())
+                         ? static_cast<int>(a[1].intValue) : 0;
+        double factor = std::pow(10.0, digits);
+        return Value::makeDouble(std::round(d * factor) / factor);
+    }
+    if (fn == "MOD") {
+        if (a[0].isNull() || a[1].isNull()) return Value::null();
+        if (a[1].intValue == 0) return Value::null();
+        return Value::makeInt(a[0].intValue % a[1].intValue);
+    }
+    return Value::null();
 }
 
 Value cachedToValue(const parser::CachedValue& cv) {
@@ -117,6 +246,24 @@ Value evalExpression(const parser::Expression& expr, const Tuple& tuple) {
                 if (b == 0) return Value::null();
                 return Value::makeInt(a / b);
         }
+        return Value::null();
+    }
+
+    if (auto* call = dynamic_cast<const CallExpr*>(&expr)) {
+        std::vector<Value> args;
+        args.reserve(call->args.size());
+        for (const auto& arg : call->args) args.push_back(evalExpression(*arg, tuple));
+        return evalCall(*call, args);
+    }
+
+    if (auto* cs = dynamic_cast<const CaseExpr*>(&expr)) {
+        for (const auto& br : cs->branches) {
+            Value cond = evalExpression(*br.when, tuple);
+            if (cond.type == ValueType::Bool && cond.boolValue) {
+                return evalExpression(*br.then, tuple);
+            }
+        }
+        if (cs->elseExpr) return evalExpression(*cs->elseExpr, tuple);
         return Value::null();
     }
 

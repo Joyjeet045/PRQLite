@@ -128,6 +128,28 @@ void run() {
     assert(sj.columns[1] == "other" && sj.rows.size() == 2 &&
            sj.rows[0][0].textValue == sj.rows[0][1].textValue);
 
+    /* Scalar string and math functions. */
+    assert(h.run("FETCH UPPER('abc') AS u FROM nums TAKE 1;").rows[0][0].textValue == "ABC");
+    assert(h.run("FETCH LENGTH('hello') AS n FROM nums TAKE 1;").rows[0][0].intValue == 5);
+    assert(h.run("FETCH SUBSTR('hello',2,3) AS s FROM nums TAKE 1;").rows[0][0].textValue ==
+           "ell");
+    assert(h.run("FETCH ABS(-7) AS a FROM nums TAKE 1;").rows[0][0].intValue == 7);
+    assert(h.run("FETCH MOD(10,3) AS m FROM nums TAKE 1;").rows[0][0].intValue == 1);
+    assert(near(h.run("FETCH ROUND(3.14159,2) AS r FROM nums TAKE 1;").rows[0][0].doubleValue,
+                3.14));
+
+    /* COALESCE returns the first non-null; NULLIF nulls equal values. */
+    assert(h.run("FETCH COALESCE(NULL,5) AS c FROM nums TAKE 1;").rows[0][0].intValue == 5);
+    assert(h.run("FETCH NULLIF(4,4) AS n FROM nums TAKE 1;").rows[0][0].isNull());
+
+    /* CASE chooses the first matching branch. */
+    auto ce = h.run(
+        "FETCH n, CASE WHEN n > 3 THEN 'hi' ELSE 'lo' END AS b FROM nums SORT BY n;");
+    assert(ce.rows[0][1].textValue == "lo" && ce.rows[4][1].textValue == "hi");
+
+    /* CAST converts between types. */
+    assert(h.run("FETCH CAST(2.9 AS INT) AS ci FROM nums TAKE 1;").rows[0][0].intValue == 2);
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");

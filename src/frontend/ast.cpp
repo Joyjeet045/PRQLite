@@ -108,6 +108,29 @@ std::string expressionToString(const Expression& e) {
         out += "))";
         return out;
     }
+    if (auto* c = dynamic_cast<const CallExpr*>(&e)) {
+        if (c->isCast) {
+            return "CAST(" + expressionToString(*c->args[0]) + " AS " +
+                   std::string(dataTypeName(c->castType)) + ")";
+        }
+        std::string out = c->name + "(";
+        for (std::size_t i = 0; i < c->args.size(); ++i) {
+            if (i) out += ", ";
+            out += expressionToString(*c->args[i]);
+        }
+        out += ")";
+        return out;
+    }
+    if (auto* cs = dynamic_cast<const CaseExpr*>(&e)) {
+        std::string out = "CASE";
+        for (const auto& br : cs->branches) {
+            out += " WHEN " + expressionToString(*br.when) + " THEN " +
+                   expressionToString(*br.then);
+        }
+        if (cs->elseExpr) out += " ELSE " + expressionToString(*cs->elseExpr);
+        out += " END";
+        return out;
+    }
     throw std::runtime_error("unsupported expression in CHECK constraint");
 }
 
@@ -122,6 +145,8 @@ void InExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void BetweenExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void LikeExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void FunctionExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void CallExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void CaseExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void SubqueryExpr::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CreateStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CreateIdxStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }

@@ -264,6 +264,75 @@ void SemanticAnalyzer::visit(parser::FunctionExpr& node) {
     }
 }
 
+void SemanticAnalyzer::visit(parser::CallExpr& node) {
+    for (auto& a : node.args) a->accept(*this);
+    const std::string& fn = node.name;
+    if (node.isCast) {
+        if (node.args.size() != 1) throw SemanticError("CAST takes one expression");
+        node.resolvedType = node.castType;
+        return;
+    }
+    auto arg0 = node.args.empty() ? std::nullopt : node.args[0]->resolvedType;
+    if (fn == "UPPER" || fn == "LOWER" || fn == "TRIM") {
+        if (node.args.size() != 1) throw SemanticError(fn + " takes 1 argument");
+        node.resolvedType = DataType::Text;
+    } else if (fn == "LENGTH") {
+        if (node.args.size() != 1) throw SemanticError("LENGTH takes 1 argument");
+        node.resolvedType = DataType::Int;
+    } else if (fn == "SUBSTR") {
+        if (node.args.size() < 2 || node.args.size() > 3)
+            throw SemanticError("SUBSTR takes 2 or 3 arguments");
+        node.resolvedType = DataType::Text;
+    } else if (fn == "ABS") {
+        if (node.args.size() != 1) throw SemanticError("ABS takes 1 argument");
+        node.resolvedType = (arg0 == DataType::Float) ? DataType::Float : DataType::Int;
+    } else if (fn == "ROUND") {
+        if (node.args.empty() || node.args.size() > 2)
+            throw SemanticError("ROUND takes 1 or 2 arguments");
+        node.resolvedType = DataType::Float;
+    } else if (fn == "CEIL" || fn == "FLOOR") {
+        if (node.args.size() != 1) throw SemanticError(fn + " takes 1 argument");
+        node.resolvedType = DataType::Int;
+    } else if (fn == "MOD") {
+        if (node.args.size() != 2) throw SemanticError("MOD takes 2 arguments");
+        node.resolvedType = DataType::Int;
+    } else if (fn == "COALESCE") {
+        if (node.args.empty()) throw SemanticError("COALESCE requires arguments");
+        std::optional<DataType> t;
+        for (auto& a : node.args)
+            if (a->resolvedType) { t = a->resolvedType; break; }
+        node.resolvedType = t;
+    } else if (fn == "NULLIF") {
+        if (node.args.size() != 2) throw SemanticError("NULLIF takes 2 arguments");
+        node.resolvedType = arg0;
+    } else if (fn == "COUNT" || fn == "SUM" || fn == "AVG" || fn == "MIN" ||
+               fn == "MAX") {
+        throw SemanticError("aggregate '" + fn + "' is only allowed in a FETCH list");
+    } else {
+        throw SemanticError("unknown function '" + fn + "'");
+    }
+}
+
+void SemanticAnalyzer::visit(parser::CaseExpr& node) {
+    if (node.branches.empty()) throw SemanticError("CASE requires a WHEN branch");
+    std::optional<DataType> resultType;
+    for (auto& br : node.branches) {
+        br.when->accept(*this);
+        if (br.when->resolvedType && br.when->resolvedType != DataType::Bool) {
+            throw SemanticError("CASE WHEN condition must be a boolean expression");
+        }
+        br.then->accept(*this);
+        if (!resultType && br.then->resolvedType) resultType = br.then->resolvedType;
+    }
+    if (node.elseExpr) {
+        node.elseExpr->accept(*this);
+        if (!resultType && node.elseExpr->resolvedType) {
+            resultType = node.elseExpr->resolvedType;
+        }
+    }
+    node.resolvedType = resultType;
+}
+
 void SemanticAnalyzer::visit(parser::SubqueryExpr& node) {
     const TableSchema* savedTable = currentTable_;
     const TableSchema* savedLeft = leftTable_;

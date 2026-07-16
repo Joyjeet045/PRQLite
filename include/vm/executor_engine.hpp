@@ -43,6 +43,8 @@ public:
     void visit(parser::BetweenExpr&) override {}
     void visit(parser::LikeExpr&) override {}
     void visit(parser::FunctionExpr&) override {}
+    void visit(parser::CallExpr&) override {}
+    void visit(parser::CaseExpr&) override {}
     void visit(parser::SubqueryExpr&) override {}
 
 private:

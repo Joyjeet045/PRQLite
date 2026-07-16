@@ -32,6 +32,8 @@ public:
     void visit(parser::BetweenExpr& node) override;
     void visit(parser::LikeExpr& node) override;
     void visit(parser::FunctionExpr& node) override;
+    void visit(parser::CallExpr& node) override;
+    void visit(parser::CaseExpr& node) override;
     void visit(parser::SubqueryExpr& node) override;
     void visit(parser::CreateStatement& node) override;
     void visit(parser::CreateIdxStatement& node) override;
