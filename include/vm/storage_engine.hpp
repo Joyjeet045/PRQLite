@@ -6,6 +6,7 @@
 #include "backend/buffer_pool.hpp"
 #include "backend/disk_manager.hpp"
 #include "index/index_manager.hpp"
+#include "vm/column_store.hpp"
 #include "vm/table_manager.hpp"
 #include "vm/version_store.hpp"
 
@@ -22,6 +23,7 @@ public:
     TableManager& tables() { return tables_; }
     index::IndexManager& indexes() { return indexes_; }
     VersionStore& versions() { return versions_; }
+    ColumnStore& columns() { return columns_; }
     backend::BufferPool& bufferPool() { return pool_; }
     backend::DiskManager& disk() { return disk_; }
 
@@ -36,6 +38,7 @@ private:
     TableManager tables_;
     index::IndexManager indexes_;
     VersionStore versions_;
+    ColumnStore columns_;
 };
 
 }

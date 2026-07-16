@@ -26,6 +26,7 @@ add_library(relite_core
     src/vm/version_store.cpp
     src/vm/vectorized.cpp
     src/vm/optimizer.cpp
+    src/vm/column_store.cpp
     src/vm/expression_eval.cpp
     src/vm/executor.cpp
     src/vm/executor_engine.cpp
@@ -120,3 +121,7 @@ add_test(NAME recovery_test COMMAND recovery_test)
 add_executable(optimizer_test tests/optimizer_test.cpp)
 target_link_libraries(optimizer_test PRIVATE relite_core)
 add_test(NAME optimizer_test COMMAND optimizer_test)
+
+add_executable(column_store_test tests/column_store_test.cpp)
+target_link_libraries(column_store_test PRIVATE relite_core)
+add_test(NAME column_store_test COMMAND column_store_test)

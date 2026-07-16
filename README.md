@@ -50,9 +50,10 @@ The full keyword vocabulary and SQL-to-Relite mapping are in
   scans, and a cardinality-driven choice between hash and sort-merge join (the
   latter backed by an external merge sort that spills to disk); `EXPLAIN` shows
   the chosen algorithm
-- Push-based, batch-at-a-time vectorized path (columnar batches + selection
-  vectors) for ungrouped aggregates, alongside the Volcano engine; `EXPLAIN`
-  marks it as `Aggregate (Vectorized)`
+- Push-based, batch-at-a-time vectorized path for ungrouped aggregates, backed
+  by a cached typed **columnar** store (contiguous primitive arrays + null
+  bitmaps) so analytical aggregates run as tight loops; `EXPLAIN` marks it as
+  `Aggregate (Vectorized)`
 - 4 KB slotted pages, disk manager, LRU buffer pool with page guards, page compaction
 - Page-resident (disk-backed) B+ tree indexes — nodes live in buffer-pool pages
   and are evictable rather than held wholly in RAM — plus Bloom filters
@@ -92,7 +93,7 @@ Type `\h` for help and `\q` to quit.
 
 ## Tests
 
-Fifteen self-contained suites run via CTest:
+Sixteen self-contained suites run via CTest:
 
 ```sh
 ctest --test-dir build --output-on-failure
@@ -135,17 +136,20 @@ laptop; 50K-row table):
 | Workload                          | Throughput      | Latency        |
 | --------------------------------- | --------------- | -------------- |
 | Insert (single-row statements)    | ~180K rows/s    | ~5.5 µs/row    |
-| Point lookup (B+ tree index)      | ~100K lookups/s | ~10 µs/lookup  |
-| Scan + aggregate (`COUNT`/`SUM`)  | ~1.5M rows/s    | ~32 ms / 50K   |
-| Durable commit (`fsync` per txn)  | ~1K commits/s   | ~0.9 ms/commit |
+| Point lookup (disk B+ tree index) | ~30K lookups/s  | ~35 µs/lookup  |
+| Scan + aggregate (`COUNT`/`SUM`)  | ~15M+ rows/s    | ~2 ms / 50K    |
+| Durable commit (`fsync` per txn)  | ~1K commits/s   | ~1 ms/commit   |
 
 Insert/lookup figures are end-to-end (they include SQL parsing and planning on
-every statement, plus multiversion bookkeeping for time travel); the
-scan + aggregate row uses the vectorized path, and commit throughput is bounded
-by `fsync`. Throughput is sensitive to background load and dataset size — run the
-harness locally for your own baseline.
+every statement, plus multiversion bookkeeping for time travel); point lookups
+go through the page-resident B+ tree. The scan + aggregate figure uses the
+columnar vectorized path — the first scan builds a typed column cache and
+subsequent aggregates run as tight loops over primitive arrays (an order of
+magnitude faster than the row path). Commit throughput is bounded by `fsync`.
+Throughput is sensitive to background load and dataset size — run the harness
+locally for your own baseline.
 
 ## Roadmap
 
 Larger items not yet implemented: serializable isolation with predicate locking,
-and a columnar storage format for the vectorized engine.
+and an on-disk (rather than cached in-memory) columnar format.

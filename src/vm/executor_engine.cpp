@@ -15,6 +15,7 @@
 
 #include "vm/executor.hpp"
 #include "vm/expression_eval.hpp"
+#include "vm/column_store.hpp"
 #include "vm/optimizer.hpp"
 #include "vm/vectorized.hpp"
 
@@ -1030,6 +1031,7 @@ void ExecutorEngine::visit(parser::InsertStatement& node) {
     std::vector<std::string> names;
     loadSchema(node.tableId, schema, names);
     const std::size_t ncols = schema.size();
+    storage_.columns().clear();
     if (!txnActive()) storage_.versions().discardPending();
 
     const semantic::TableSchema* ts = catalog_.getTableById(node.tableId);
@@ -1474,8 +1476,9 @@ bool ExecutorEngine::tryVectorizedAggregate(parser::SelectStatement& node,
         predicate = std::move(pred);
     }
 
-    std::vector<Value> row =
-        runVectorizedAggregate(storage_, node.tableId, schema, predicate, aggs);
+    const TableColumns& cols =
+        storage_.columns().getOrBuild(node.tableId, schema, storage_.tables());
+    std::vector<Value> row = columnarAggregate(cols, aggs, predicate);
 
     for (const auto& fn : node.aggregates) {
         result_.columns.push_back(fn->alias.empty() ? aggLabel(*fn) : fn->alias);
@@ -1860,6 +1863,7 @@ void ExecutorEngine::visit(parser::DeleteStatement& node) {
     loadSchema(node.tableId, schema, names);
     materializeSubqueries(node.where.get());
     const semantic::TableSchema* ts = catalog_.getTableById(node.tableId);
+    storage_.columns().clear();
     if (!txnActive()) storage_.versions().discardPending();
 
     std::vector<index::Index*> tableIndexes = storage_.indexes().forTable(node.tableId);
@@ -1923,6 +1927,7 @@ void ExecutorEngine::visit(parser::UpdateStatement& node) {
     loadSchema(node.tableId, schema, names);
     materializeSubqueries(node.where.get());
     const semantic::TableSchema* ts = catalog_.getTableById(node.tableId);
+    storage_.columns().clear();
     if (!txnActive()) storage_.versions().discardPending();
 
     std::vector<index::Index*> tableIndexes = storage_.indexes().forTable(node.tableId);
@@ -1995,6 +2000,7 @@ void ExecutorEngine::visit(parser::UpdateStatement& node) {
 }
 
 void ExecutorEngine::visit(parser::DropStatement& node) {
+    storage_.columns().clear();
     if (node.isIndex) {
         storage_.indexes().drop(node.name);
         result_.message = "DISCARD INDEX";
@@ -2006,6 +2012,7 @@ void ExecutorEngine::visit(parser::DropStatement& node) {
 }
 
 void ExecutorEngine::visit(parser::AlterStatement& node) {
+    storage_.columns().clear();
     Schema oldSchema;
     std::vector<std::string> oldNames;
     loadSchema(node.tableId, oldSchema, oldNames);
