@@ -40,6 +40,7 @@ struct TableSchema {
     std::vector<ForeignKey> foreignKeys;
     bool isView = false;
     std::shared_ptr<parser::SelectStatement> viewQuery;
+    std::string viewSource;
 
     int columnIndex(const std::string& column) const;
 };
@@ -56,7 +57,7 @@ public:
     bool createView(const std::string& name,
                     const std::vector<ColumnSchema>& columns,
                     std::shared_ptr<parser::SelectStatement> query,
-                    int& outTableId);
+                    int& outTableId, const std::string& source = "");
 
     bool hasTable(const std::string& name) const;
     const TableSchema* getTable(const std::string& name) const;

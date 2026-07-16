@@ -403,6 +403,7 @@ class CreateViewStatement : public ASTNode {
 public:
     std::string name;
     std::shared_ptr<SelectStatement> query;
+    std::string source;
 
     int tableId = -1;
 

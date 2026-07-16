@@ -34,7 +34,8 @@ It runs as an interactive REPL and persists data across restarts.
 - Constraints: `PRIMARY KEY`, `UNIQUE`, `NOT NULL`, `DEFAULT`, `CHECK`, `AUTO_INCREMENT`,
   foreign keys (`REFERENCES ... ON REMOVE CASCADE / SET NULL / RESTRICT`), and
   `VARCHAR(n)` length enforcement
-- Views: `BUILD VIEW v AS FETCH ...` (materialized on read)
+- Views: `BUILD VIEW v AS FETCH ...` (definition persisted across restarts;
+  materialized on read)
 - Time travel: `FETCH ... FROM t AS OF <version>` reads a table as of a past
   logical version (MVCC snapshot); every committed write advances the version
 - Transactions: `START` / `SAVE` / `UNDO`

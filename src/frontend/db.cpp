@@ -125,6 +125,10 @@ std::string DB::connect(const std::string& query) {
         return std::string("ERROR  ") + e.what() + "\n";
     }
 
+    if (auto* cv = dynamic_cast<parser::CreateViewStatement*>(stmt.get())) {
+        cv->source = query;
+    }
+
     auto& catalog = catalog_;
     try {
         semantic::SemanticAnalyzer analyzer(catalog);
@@ -157,7 +161,7 @@ void DB::saveCatalog() {
         out.precision(17);
 
         auto& cat = catalog_;
-        out << "RELITE7\n";
+        out << "RELITE8\n";
         out << cat.nextTableId() << "\n";
 
         auto allTables = cat.allTables();
@@ -204,6 +208,18 @@ void DB::saveCatalog() {
             for (const auto& c : ix.columns) out << " " << c;
             out << "\n";
         }
+
+        std::vector<const semantic::TableSchema*> views;
+        for (const semantic::TableSchema* ts : allTables) {
+            if (ts->isView) views.push_back(ts);
+        }
+        out << views.size() << "\n";
+        for (const semantic::TableSchema* v : views) {
+            out << v->viewSource.size() << " ";
+            out.write(v->viewSource.data(),
+                      static_cast<std::streamsize>(v->viewSource.size()));
+            out << "\n";
+        }
         out.flush();
     }
     backend::syncFileToDisk(tmpPath);
@@ -230,6 +246,7 @@ void DB::loadCatalog() {
     else if (magic == "RELITE5") ver = 5;
     else if (magic == "RELITE6") ver = 6;
     else if (magic == "RELITE7") ver = 7;
+    else if (magic == "RELITE8") ver = 8;
     else return;
 
     auto& cat = catalog_;
@@ -343,6 +360,34 @@ void DB::loadCatalog() {
             cols.push_back(c);
         }
         cat.createIndex(name, table, cols);
+    }
+
+    if (ver >= 8) {
+        int nviews = 0;
+        in >> nviews;
+        std::vector<std::string> sources;
+        for (int v = 0; v < nviews; ++v) {
+            long long len = 0;
+            in >> len;
+            in.get();
+            std::string src(static_cast<std::size_t>(len), '\0');
+            if (len > 0) in.read(&src[0], static_cast<std::streamsize>(len));
+            sources.push_back(std::move(src));
+        }
+        for (const std::string& src : sources) {
+            try {
+                parser::Lexer lex(src);
+                parser::Parser p(lex.tokenize());
+                auto stmt = p.parseStatement();
+                if (auto* cv =
+                        dynamic_cast<parser::CreateViewStatement*>(stmt.get())) {
+                    cv->source = src;
+                }
+                semantic::SemanticAnalyzer analyzer(cat);
+                analyzer.analyze(*stmt);
+            } catch (const std::exception&) {
+            }
+        }
     }
 }
 

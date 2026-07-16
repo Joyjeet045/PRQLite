@@ -879,7 +879,7 @@ void SemanticAnalyzer::visit(parser::CreateViewStatement& node) {
     }
 
     int id = -1;
-    catalog_.createView(node.name, cols, node.query, id);
+    catalog_.createView(node.name, cols, node.query, id, node.source);
     node.tableId = id;
 }
 

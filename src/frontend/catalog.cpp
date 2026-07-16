@@ -37,7 +37,7 @@ bool Catalog::createTable(const std::string& name,
 bool Catalog::createView(const std::string& name,
                          const std::vector<ColumnSchema>& columns,
                          std::shared_ptr<parser::SelectStatement> query,
-                         int& outTableId) {
+                         int& outTableId, const std::string& source) {
     if (tables_.count(name) != 0) {
         return false;
     }
@@ -47,6 +47,7 @@ bool Catalog::createView(const std::string& name,
     schema.columns = columns;
     schema.isView = true;
     schema.viewQuery = std::move(query);
+    schema.viewSource = source;
     outTableId = schema.tableId;
     tableNamesById_[schema.tableId] = name;
     tables_.emplace(name, std::move(schema));
