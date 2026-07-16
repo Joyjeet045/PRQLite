@@ -57,6 +57,8 @@ private:
     bool indexCandidates(parser::Expression* where, int tableId,
                          std::vector<RecordID>& rids);
 
+    void explainSelect(parser::SelectStatement& node);
+
     void materializeSubqueries(parser::Expression* expr);
     void materializeSubquery(parser::SubqueryExpr* sub);
 

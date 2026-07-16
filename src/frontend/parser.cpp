@@ -162,6 +162,14 @@ ASTNodePtr Parser::parseStatement() {
         case TokenType::CREATE: stmt = parseCreate(); break;
         case TokenType::INSERT: stmt = parseInsert(); break;
         case TokenType::SELECT: stmt = parseSelect(); break;
+        case TokenType::EXPLAIN: {
+            advance();
+            stmt = parseSelect();
+            if (auto* s = dynamic_cast<SelectStatement*>(stmt.get())) {
+                s->explain = true;
+            }
+            break;
+        }
         case TokenType::DELETE: stmt = parseDelete(); break;
         case TokenType::UPDATE: stmt = parseUpdate(); break;
         case TokenType::DROP: stmt = parseDrop(); break;
@@ -380,6 +388,20 @@ ASTNodePtr Parser::parseSelect() {
     if (match(TokenType::LEFT)) {
         consume(TokenType::JOIN, "LINK");
         stmt->joinType = SelectStatement::JoinKind::Left;
+        stmt->joinTable = consume(TokenType::IDENTIFIER, "table name").lexeme;
+        stmt->joinTableAlias = parseOptionalAlias();
+        consume(TokenType::ON, "ON");
+        stmt->joinOn = parseExpression();
+    } else if (match(TokenType::RIGHT)) {
+        consume(TokenType::JOIN, "LINK");
+        stmt->joinType = SelectStatement::JoinKind::Right;
+        stmt->joinTable = consume(TokenType::IDENTIFIER, "table name").lexeme;
+        stmt->joinTableAlias = parseOptionalAlias();
+        consume(TokenType::ON, "ON");
+        stmt->joinOn = parseExpression();
+    } else if (match(TokenType::FULL)) {
+        consume(TokenType::JOIN, "LINK");
+        stmt->joinType = SelectStatement::JoinKind::Full;
         stmt->joinTable = consume(TokenType::IDENTIFIER, "table name").lexeme;
         stmt->joinTableAlias = parseOptionalAlias();
         consume(TokenType::ON, "ON");

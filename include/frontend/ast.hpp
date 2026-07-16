@@ -265,6 +265,7 @@ class SelectStatement : public ASTNode {
 public:
     bool selectStar = false;
     bool distinct = false;
+    bool explain = false;
     std::vector<std::unique_ptr<ColumnRef>> columns;
     std::string table;
     std::string tableAlias;
@@ -284,7 +285,7 @@ public:
     std::vector<std::unique_ptr<ColumnRef>> groupBy;
     ExpressionPtr having;
 
-    enum class JoinKind { Inner, Left, Cross };
+    enum class JoinKind { Inner, Left, Right, Full, Cross };
     std::string joinTable;
     std::string joinTableAlias;
     ExpressionPtr joinOn;

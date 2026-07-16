@@ -150,6 +150,23 @@ void run() {
     /* CAST converts between types. */
     assert(h.run("FETCH CAST(2.9 AS INT) AS ci FROM nums TAKE 1;").rows[0][0].intValue == 2);
 
+    /* RIGHT and FULL outer joins. */
+    h.run("BUILD RELATION ra (id INT, x TEXT);");
+    h.run("BUILD RELATION rb (id INT, y TEXT);");
+    h.run("PUT INTO ra VALUES (1,'a1'),(2,'a2');");
+    h.run("PUT INTO rb VALUES (2,'b2'),(3,'b3');");
+    auto rj = h.run(
+        "FETCH ra.x, rb.y FROM ra RIGHT LINK rb ON ra.id = rb.id SORT BY rb.id;");
+    assert(rj.rows.size() == 2 && rj.rows[1][0].isNull() &&
+           rj.rows[1][1].textValue == "b3");
+    auto fj = h.run(
+        "FETCH ra.x, rb.y FROM ra FULL LINK rb ON ra.id = rb.id SORT BY ra.id;");
+    assert(fj.rows.size() == 3);
+
+    /* EXPLAIN emits a single-column plan. */
+    auto ex = h.run("EXPLAIN FETCH x FROM ra WHEN id = 1;");
+    assert(ex.columns.size() == 1 && ex.columns[0] == "plan" && !ex.rows.empty());
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");

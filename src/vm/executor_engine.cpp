@@ -581,7 +581,72 @@ void ExecutorEngine::visit(parser::InsertStatement& node) {
     result_.message = "PUT 0 " + std::to_string(count);
 }
 
+void ExecutorEngine::explainSelect(parser::SelectStatement& node) {
+    result_.isQuery = true;
+    result_.columns = {"plan"};
+    std::vector<std::string> lines;
+    int depth = 0;
+    auto emit = [&](const std::string& s) {
+        lines.push_back(std::string(static_cast<std::size_t>(depth) * 2, ' ') + s);
+    };
+
+    if (node.hasLimit || node.offset > 0) {
+        std::string s = "Limit";
+        if (node.hasLimit) s += " " + std::to_string(node.limit);
+        if (node.offset > 0) s += " offset " + std::to_string(node.offset);
+        emit(s);
+        ++depth;
+    }
+    if (node.distinct) { emit("Unique"); ++depth; }
+    if (!node.orderBy.empty()) { emit("Sort"); ++depth; }
+    if (!node.aggregates.empty() || !node.groupBy.empty()) {
+        emit(node.groupBy.empty() ? "Aggregate" : "GroupAggregate");
+        ++depth;
+    }
+
+    if (!node.joinTable.empty()) {
+        const semantic::TableSchema* lt = catalog_.getTableById(node.tableId);
+        const semantic::TableSchema* rt = catalog_.getTableById(node.joinTableId);
+        const char* kind = "Inner";
+        switch (node.joinType) {
+            case parser::SelectStatement::JoinKind::Left: kind = "Left"; break;
+            case parser::SelectStatement::JoinKind::Right: kind = "Right"; break;
+            case parser::SelectStatement::JoinKind::Full: kind = "Full"; break;
+            case parser::SelectStatement::JoinKind::Cross: kind = "Cross"; break;
+            default: break;
+        }
+        bool equi = false;
+        if (auto* bin = dynamic_cast<parser::BinaryExpr*>(node.joinOn.get())) {
+            equi = bin->op == parser::ComparisonOp::Eq &&
+                   dynamic_cast<parser::ColumnRef*>(bin->left.get()) != nullptr &&
+                   dynamic_cast<parser::ColumnRef*>(bin->right.get()) != nullptr;
+        }
+        bool hash =
+            node.joinType == parser::SelectStatement::JoinKind::Inner && equi;
+        emit(std::string(kind) + (hash ? " Join (Hash)" : " Join (Nested Loop)"));
+        ++depth;
+        emit("Seq Scan on " + (lt ? lt->name : std::string("?")));
+        emit("Seq Scan on " + (rt ? rt->name : std::string("?")));
+    } else {
+        if (node.where) { emit("Filter"); ++depth; }
+        std::vector<RecordID> tmp;
+        bool idx =
+            node.where != nullptr && indexCandidates(node.where.get(), node.tableId, tmp);
+        const semantic::TableSchema* t = catalog_.getTableById(node.tableId);
+        emit((idx ? "Index Scan on " : "Seq Scan on ") +
+             (t ? t->name : std::string("?")));
+    }
+
+    for (const auto& line : lines) {
+        result_.rows.push_back(std::vector<Value>{Value::makeText(line)});
+    }
+}
+
 void ExecutorEngine::visit(parser::SelectStatement& node) {
+    if (node.explain) {
+        explainSelect(node);
+        return;
+    }
     result_.isQuery = true;
     materializeSubqueries(node.where.get());
     materializeSubqueries(node.having.get());
@@ -662,21 +727,40 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
                     }
                 }
             } else {
+                using JoinKind = parser::SelectStatement::JoinKind;
+                const bool keepLeft =
+                    node.joinType == JoinKind::Left || node.joinType == JoinKind::Full;
+                const bool keepRight =
+                    node.joinType == JoinKind::Right || node.joinType == JoinKind::Full;
+                std::vector<char> rightMatched(rightRows.size(), 0);
                 for (auto& lp : leftRows) {
                     bool matched = false;
-                    for (auto& rp : rightRows) {
+                    for (std::size_t ri = 0; ri < rightRows.size(); ++ri) {
                         std::vector<Value> combined = lp.second;
-                        combined.insert(combined.end(), rp.second.begin(), rp.second.end());
+                        combined.insert(combined.end(), rightRows[ri].second.begin(),
+                                        rightRows[ri].second.end());
                         Tuple ct(combined);
                         if (node.joinOn && !predicateTrue(*node.joinOn, ct)) continue;
                         matched = true;
+                        rightMatched[ri] = 1;
                         if (node.where && !predicateTrue(*node.where, ct)) continue;
                         rows.emplace_back(RecordID{}, std::move(combined));
                     }
-                    if (!matched &&
-                        node.joinType == parser::SelectStatement::JoinKind::Left) {
+                    if (!matched && keepLeft) {
                         std::vector<Value> combined = lp.second;
                         combined.insert(combined.end(), nullRight.begin(), nullRight.end());
+                        Tuple ct(combined);
+                        if (node.where && !predicateTrue(*node.where, ct)) continue;
+                        rows.emplace_back(RecordID{}, std::move(combined));
+                    }
+                }
+                if (keepRight) {
+                    const std::vector<Value> nullLeft(leftWidth, Value::null());
+                    for (std::size_t ri = 0; ri < rightRows.size(); ++ri) {
+                        if (rightMatched[ri]) continue;
+                        std::vector<Value> combined = nullLeft;
+                        combined.insert(combined.end(), rightRows[ri].second.begin(),
+                                        rightRows[ri].second.end());
                         Tuple ct(combined);
                         if (node.where && !predicateTrue(*node.where, ct)) continue;
                         rows.emplace_back(RecordID{}, std::move(combined));

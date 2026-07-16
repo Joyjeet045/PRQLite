@@ -30,9 +30,11 @@ const std::unordered_map<std::string, TokenType>& keywordTable() {
         {"SKIP", TokenType::OFFSET},
         {"CASE", TokenType::CASE},       {"THEN", TokenType::THEN},
         {"ELSE", TokenType::ELSE},       {"END", TokenType::END},
+        {"EXPLAIN", TokenType::EXPLAIN},
         {"AS", TokenType::AS},           {"ASC", TokenType::ASC},
         {"DESC", TokenType::DESC},       {"LINK", TokenType::JOIN},
         {"LEFT", TokenType::LEFT},       {"CROSS", TokenType::CROSS},
+        {"RIGHT", TokenType::RIGHT},     {"FULL", TokenType::FULL},
         {"IS", TokenType::IS},
         {"IN", TokenType::IN},           {"BETWEEN", TokenType::BETWEEN},
         {"LIKE", TokenType::LIKE},       {"NULL", TokenType::NULL_LITERAL},
@@ -261,12 +263,15 @@ std::string_view tokenTypeName(TokenType type) {
         case TokenType::THEN: return "THEN";
         case TokenType::ELSE: return "ELSE";
         case TokenType::END: return "END";
+        case TokenType::EXPLAIN: return "EXPLAIN";
         case TokenType::AS: return "AS";
         case TokenType::ASC: return "ASC";
         case TokenType::DESC: return "DESC";
         case TokenType::JOIN: return "JOIN";
         case TokenType::INNER: return "INNER";
         case TokenType::LEFT: return "LEFT";
+        case TokenType::RIGHT: return "RIGHT";
+        case TokenType::FULL: return "FULL";
         case TokenType::CROSS: return "CROSS";
         case TokenType::IS: return "IS";
         case TokenType::IN: return "IN";
