@@ -53,7 +53,9 @@ The full keyword vocabulary and SQL-to-Relite mapping are in
 - 4 KB slotted pages, disk manager, LRU buffer pool with page guards, page compaction
 - Page-resident (disk-backed) B+ tree indexes — nodes live in buffer-pool pages
   and are evictable rather than held wholly in RAM — plus Bloom filters
-- Write-ahead log with `fsync` durability, group-commit, checkpointing, and crash recovery
+- Write-ahead log with `fsync` durability, group-commit, and checkpointing;
+  ARIES-style recovery (analysis → redo → undo) with per-page LSNs and
+  idempotent redo, so committed work survives even under a no-force buffer policy
 - Row-level lock manager (two-phase locking) and a transaction manager with undo
 - Snapshot isolation: a transaction reads a stable snapshot (committed state at
   its start plus its own writes); single-table reads are served lock-free from
@@ -87,7 +89,7 @@ Type `\h` for help and `\q` to quit.
 
 ## Tests
 
-Thirteen self-contained suites run via CTest:
+Fourteen self-contained suites run via CTest:
 
 ```sh
 ctest --test-dir build --output-on-failure
@@ -142,6 +144,5 @@ harness locally for your own baseline.
 
 ## Roadmap
 
-Larger items not yet implemented: ARIES-style redo + `pageLSN`, serializable
-isolation with predicate locking, and a cost-based optimizer with merge join and
-external-sort spill.
+Larger items not yet implemented: serializable isolation with predicate locking,
+and a cost-based optimizer with merge join and external-sort spill.

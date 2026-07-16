@@ -22,6 +22,20 @@ void Page::writeU16(int offset, std::uint16_t value) {
     std::memcpy(bytes_ + offset, &value, sizeof(value));
 }
 
+std::uint64_t Page::readU64(int offset) const {
+    std::uint64_t v;
+    std::memcpy(&v, bytes_ + offset, sizeof(v));
+    return v;
+}
+
+void Page::writeU64(int offset, std::uint64_t value) {
+    std::memcpy(bytes_ + offset, &value, sizeof(value));
+}
+
+std::uint64_t Page::pageLSN() const { return readU64(LSN_OFFSET); }
+
+void Page::setPageLSN(std::uint64_t lsn) { writeU64(LSN_OFFSET, lsn); }
+
 void Page::slotAt(int slot, std::uint16_t& offset, std::uint16_t& length) const {
     int base = HEADER_SIZE + slot * SLOT_SIZE;
     offset = readU16(base);
@@ -141,6 +155,48 @@ bool Page::update(int slot, const std::string& record) {
     std::memcpy(bytes_ + offset, record.data(), need);
     setSlot(slot, offset, static_cast<std::uint16_t>(need));
     return true;
+}
+
+bool Page::redoSet(int slot, const std::string& record, std::uint64_t lsn) {
+    if (readU16(2) < HEADER_SIZE) init();
+    if (lsn != 0 && pageLSN() >= lsn) return true;
+
+    std::string current;
+    if (get(slot, current) && current == record) {
+        if (lsn != 0) setPageLSN(lsn);
+        return true;
+    }
+
+    const int need = static_cast<int>(record.size());
+    if (need == 0 || need > 0xFFFF) return false;
+
+    int count = slotCount();
+    if (slot >= count) {
+        for (int s = count; s <= slot; ++s) setSlot(s, 0, 0);
+        writeU16(0, static_cast<std::uint16_t>(slot + 1));
+    }
+    if (freeSpace() < need) {
+        if (usableSpace() < need) return false;
+        compact();
+    }
+    std::uint16_t freeEnd = readU16(2);
+    std::uint16_t dataOffset = static_cast<std::uint16_t>(freeEnd - need);
+    std::memcpy(bytes_ + dataOffset, record.data(), need);
+    setSlot(slot, dataOffset, static_cast<std::uint16_t>(need));
+    writeU16(2, dataOffset);
+    if (lsn != 0) setPageLSN(lsn);
+    return true;
+}
+
+void Page::redoClear(int slot, std::uint64_t lsn) {
+    if (readU16(2) < HEADER_SIZE) init();
+    if (lsn != 0 && pageLSN() >= lsn) return;
+    if (slot >= 0 && slot < slotCount()) {
+        std::uint16_t offset, length;
+        slotAt(slot, offset, length);
+        setSlot(slot, offset, 0);
+    }
+    if (lsn != 0) setPageLSN(lsn);
 }
 
 }

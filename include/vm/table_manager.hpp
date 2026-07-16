@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -25,6 +26,14 @@ public:
     bool eraseTuple(int tableId, const RecordID& rid);
 
     RecordID updateTuple(int tableId, const RecordID& rid, const std::string& bytes);
+
+    /* Recovery hooks: place / clear a tuple at an exact RecordID. redo* are
+     * idempotent (guarded by the page LSN); undo* always apply. */
+    void redoInsert(int tableId, const RecordID& rid, const std::string& bytes,
+                    std::uint64_t lsn);
+    void redoDelete(int tableId, const RecordID& rid, std::uint64_t lsn);
+    void undoInsert(int tableId, const RecordID& rid);
+    void undoDelete(int tableId, const RecordID& rid, const std::string& bytes);
 
     const std::vector<backend::PageId>& pageList(int tableId) const;
     backend::BufferPool* pool() const { return pool_; }

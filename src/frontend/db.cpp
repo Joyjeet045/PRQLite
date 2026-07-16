@@ -17,6 +17,7 @@
 #include "frontend/parser.hpp"
 #include "frontend/semantic_analyzer.hpp"
 #include "txn/lock_manager.hpp"
+#include "txn/recovery.hpp"
 #include "txn/transaction_manager.hpp"
 #include "txn/wal.hpp"
 #include "vm/executor_engine.hpp"
@@ -464,20 +465,7 @@ void DB::recover() {
     std::vector<txn::LogRecord> records = wal_->readAll();
     if (records.empty()) return;
 
-    std::unordered_set<int> committed;
-    for (const auto& r : records) {
-        if (r.type == txn::LogType::Commit) committed.insert(r.txnId);
-    }
-
-    for (auto it = records.rbegin(); it != records.rend(); ++it) {
-        const txn::LogRecord& r = *it;
-        if (committed.count(r.txnId) != 0) continue;
-        if (r.type == txn::LogType::Insert) {
-            storage_->tables().eraseTuple(r.tableId, r.rid);
-        } else if (r.type == txn::LogType::Delete) {
-            storage_->tables().insertTuple(r.tableId, r.beforeImage);
-        }
-    }
+    recovery::recover(records, storage_->tables());
 
     storage_->flush();
     saveCatalog();

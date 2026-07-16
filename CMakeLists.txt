@@ -35,6 +35,7 @@ add_library(relite_core
     src/txn/lock_manager.cpp
     src/txn/wal.cpp
     src/txn/transaction_manager.cpp
+    src/txn/recovery.cpp
     src/backend/page.cpp
     src/backend/disk_manager.cpp
     src/backend/buffer_pool.cpp
@@ -110,3 +111,7 @@ add_test(NAME vectorized_test COMMAND vectorized_test)
 add_executable(disk_index_test tests/disk_index_test.cpp)
 target_link_libraries(disk_index_test PRIVATE relite_core)
 add_test(NAME disk_index_test COMMAND disk_index_test)
+
+add_executable(recovery_test tests/recovery_test.cpp)
+target_link_libraries(recovery_test PRIVATE relite_core)
+add_test(NAME recovery_test COMMAND recovery_test)

@@ -106,6 +106,60 @@ RecordID TableManager::updateTuple(int tableId, const RecordID& rid,
     return insertTuple(tableId, bytes);
 }
 
+void TableManager::redoInsert(int tableId, const RecordID& rid,
+                              const std::string& bytes, std::uint64_t lsn) {
+    backend::Page* page = pool_->fetchPage(rid.pageId);
+    if (page == nullptr) return;
+    {
+        backend::PageGuard guard(pool_, rid.pageId, page);
+        if (page->redoSet(rid.slotId, bytes, lsn)) guard.markDirty();
+    }
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    auto& list = pages_[tableId];
+    bool present = false;
+    for (backend::PageId p : list) {
+        if (p == rid.pageId) { present = true; break; }
+    }
+    if (!present) list.push_back(rid.pageId);
+}
+
+void TableManager::redoDelete(int tableId, const RecordID& rid, std::uint64_t lsn) {
+    (void)tableId;
+    backend::Page* page = pool_->fetchPage(rid.pageId);
+    if (page == nullptr) return;
+    backend::PageGuard guard(pool_, rid.pageId, page);
+    page->redoClear(rid.slotId, lsn);
+    guard.markDirty();
+}
+
+void TableManager::undoInsert(int tableId, const RecordID& rid) {
+    (void)tableId;
+    backend::Page* page = pool_->fetchPage(rid.pageId);
+    if (page == nullptr) return;
+    backend::PageGuard guard(pool_, rid.pageId, page);
+    page->redoClear(rid.slotId, 0);
+    guard.markDirty();
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    pageFree_[rid.pageId] = page->freeBytes();
+}
+
+void TableManager::undoDelete(int tableId, const RecordID& rid,
+                              const std::string& bytes) {
+    backend::Page* page = pool_->fetchPage(rid.pageId);
+    if (page == nullptr) return;
+    {
+        backend::PageGuard guard(pool_, rid.pageId, page);
+        if (page->redoSet(rid.slotId, bytes, 0)) guard.markDirty();
+    }
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    auto& list = pages_[tableId];
+    bool present = false;
+    for (backend::PageId p : list) {
+        if (p == rid.pageId) { present = true; break; }
+    }
+    if (!present) list.push_back(rid.pageId);
+}
+
 TableIterator::TableIterator(TableManager* manager, int tableId)
     : manager_(manager), tableId_(tableId) {
     advanceToLive();
