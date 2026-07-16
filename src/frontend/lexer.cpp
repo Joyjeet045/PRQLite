@@ -33,6 +33,7 @@ const std::unordered_map<std::string, TokenType>& keywordTable() {
         {"BY", TokenType::BY},           {"GROUP", TokenType::GROUP},
         {"HAVING", TokenType::HAVING},   {"TAKE", TokenType::LIMIT},
         {"OVER", TokenType::OVER},       {"PARTITION", TokenType::PARTITION},
+        {"OF", TokenType::OF},
         {"SKIP", TokenType::OFFSET},
         {"CASE", TokenType::CASE},       {"THEN", TokenType::THEN},
         {"ELSE", TokenType::ELSE},       {"END", TokenType::END},
@@ -274,6 +275,7 @@ std::string_view tokenTypeName(TokenType type) {
         case TokenType::HAVING: return "HAVING";
         case TokenType::OVER: return "OVER";
         case TokenType::PARTITION: return "PARTITION";
+        case TokenType::OF: return "OF";
         case TokenType::LIMIT: return "LIMIT";
         case TokenType::OFFSET: return "OFFSET";
         case TokenType::CASE: return "CASE";

@@ -295,6 +295,8 @@ public:
     std::vector<std::unique_ptr<ColumnRef>> columns;
     std::string table;
     std::string tableAlias;
+    bool asOf = false;
+    unsigned long long asOfVersion = 0;
     ExpressionPtr where;
 
     struct OrderKey {

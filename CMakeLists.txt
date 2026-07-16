@@ -23,6 +23,7 @@ add_library(relite_core
     src/vm/value.cpp
     src/vm/tuple.cpp
     src/vm/table_manager.cpp
+    src/vm/version_store.cpp
     src/vm/expression_eval.cpp
     src/vm/executor.cpp
     src/vm/executor_engine.cpp

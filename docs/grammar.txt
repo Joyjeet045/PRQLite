@@ -91,7 +91,7 @@ Terminals (lexical)
             LIKE EXISTS EXPLAIN UNION INTERSECT EXCEPT ALL CASE THEN ELSE END
             START SAVE UNDO AND OR NOT INT INTEGER BIGINT SMALLINT FLOAT DOUBLE
             REAL DECIMAL NUMERIC DATE TIMESTAMP DATETIME BOOL BOOLEAN TEXT VARCHAR
-            VIEW OVER PARTITION TRUE FALSE NULL
+            VIEW OVER PARTITION OF TRUE FALSE NULL
 
 
 ================================================================================
@@ -118,7 +118,7 @@ Statements
   fetchStmt   := [ "EXPLAIN" ] selectCore { setOp selectCore } ;
   setOp       := "UNION" [ "ALL" ] | "INTERSECT" | "EXCEPT" ;
   selectCore  := "FETCH" [ "UNIQUEONLY" ] ( "*" | fetchItem { "," fetchItem } )
-                 "FROM" ident [ alias ]
+                 "FROM" ident ( [ alias ] | "AS" "OF" integer )
                  { linkClause }
                  [ "WHEN"   expression ]
                  [ "GROUP" "BY" columnRef { "," columnRef } ]
@@ -246,6 +246,11 @@ Notes / intentional limitations
     within a partition for the ranking functions. Aggregate windows return the
     partition total (there is no explicit frame clause). Window queries read a
     single table.
+  * FETCH ... FROM t AS OF <version> is MVCC time travel: it reconstructs the
+    table as it existed at a past logical version. Every committed write
+    statement (autocommit) or transaction advances a global version by one;
+    version 0 is the empty state before any change. The version history is kept
+    in memory for the current session and covers a single table (no joins).
   * Subqueries appear as IN (FETCH ...), EXISTS (FETCH ...), or a parenthesized
     scalar (FETCH ...), including inside MODIFY/REMOVE and the FETCH list. A
     subquery may be correlated: when its WHEN references a column from the

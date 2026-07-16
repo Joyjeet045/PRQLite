@@ -60,6 +60,10 @@ private:
     std::vector<std::pair<RecordID, std::vector<Value>>> gatherBaseRows(
         int tableId, const Schema& schema, parser::Expression* where);
 
+    std::vector<std::pair<RecordID, std::vector<Value>>> sourceRows(
+        parser::SelectStatement& node, const Schema& schema,
+        parser::Expression* where);
+
     std::vector<std::pair<RecordID, std::vector<Value>>> joinTwo(
         const std::vector<std::pair<RecordID, std::vector<Value>>>& leftRows,
         int leftWidth,

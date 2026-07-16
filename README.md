@@ -35,6 +35,8 @@ It runs as an interactive REPL and persists data across restarts.
   foreign keys (`REFERENCES ... ON REMOVE CASCADE / SET NULL / RESTRICT`), and
   `VARCHAR(n)` length enforcement
 - Views: `BUILD VIEW v AS FETCH ...` (materialized on read)
+- Time travel: `FETCH ... FROM t AS OF <version>` reads a table as of a past
+  logical version (MVCC snapshot); every committed write advances the version
 - Transactions: `START` / `SAVE` / `UNDO`
 
 The full keyword vocabulary and SQL-to-Relite mapping are in
@@ -48,6 +50,7 @@ The full keyword vocabulary and SQL-to-Relite mapping are in
 - Thread-safe B+ tree + Bloom filter indexes
 - Write-ahead log with `fsync` durability, group-commit, checkpointing, and crash recovery
 - Row-level lock manager (two-phase locking) and a transaction manager with undo
+- Multiversion store for snapshot reads / `AS OF` time travel, kept beside the heap
 
 ## Build
 
@@ -111,22 +114,24 @@ cmake --build build-release --target relite_bench
 ./build-release/relite_bench
 ```
 
-Representative results (Release build, single thread, warm cache, commodity
+Representative results (Release build, single thread, otherwise-idle commodity
 laptop; 50K-row table):
 
 | Workload                          | Throughput      | Latency        |
 | --------------------------------- | --------------- | -------------- |
-| Insert (single-row statements)    | ~215K rows/s    | ~4.6 µs/row    |
-| Point lookup (B+ tree index)      | ~120K lookups/s | ~8.4 µs/lookup |
-| Scan + aggregate (`COUNT`/`SUM`)  | ~1.7M rows/s    | ~29 ms / 50K   |
-| Durable commit (`fsync` per txn)  | ~1.3K commits/s | ~0.77 ms/commit |
+| Insert (single-row statements)    | ~180K rows/s    | ~5.5 µs/row    |
+| Point lookup (B+ tree index)      | ~100K lookups/s | ~10 µs/lookup  |
+| Scan + aggregate (`COUNT`/`SUM`)  | ~1.5M rows/s    | ~32 ms / 50K   |
+| Durable commit (`fsync` per txn)  | ~1K commits/s   | ~0.9 ms/commit |
 
 Insert/lookup figures are end-to-end (they include SQL parsing and planning on
-every statement); commit throughput is bounded by `fsync`. Numbers vary with
-hardware and dataset size — run the harness locally for your own baseline.
+every statement, plus multiversion bookkeeping for time travel); commit
+throughput is bounded by `fsync`. Throughput is sensitive to background load and
+dataset size — run the harness locally for your own baseline.
 
 ## Roadmap
 
-Larger items not yet implemented: ARIES-style redo + `pageLSN`, MVCC / isolation levels,
-a paged (disk-backed) B+ tree, and a cost-based optimizer with merge join and
-external-sort spill.
+Larger items not yet implemented: ARIES-style redo + `pageLSN`, full isolation
+levels with predicate locking, on-disk (persisted) version history with garbage
+collection, a paged (disk-backed) B+ tree, and a cost-based optimizer with merge
+join and external-sort spill.

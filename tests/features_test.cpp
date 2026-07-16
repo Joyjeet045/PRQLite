@@ -301,6 +301,26 @@ void run() {
     assert(cpr.rows.size() == 3 && cpr.rows[0][1].intValue == 2 &&
            cpr.rows[1][1].intValue == 2 && cpr.rows[2][1].intValue == 0);
 
+    /* MVCC time travel: AS OF reconstructs a table at a past logical version. */
+    h.run("BUILD RELATION tt (id INT, bal INT);");
+    h.run("PUT INTO tt VALUES (1,100),(2,200);");
+    unsigned long long verA = h.se.versions().currentVersion();
+    h.run("MODIFY tt SET bal = 999 WHEN id = 1;");
+    unsigned long long verB = h.se.versions().currentVersion();
+    h.run("REMOVE FROM tt WHEN id = 2;");
+    auto tlive = h.run("FETCH id, bal FROM tt SORT BY id;");
+    assert(tlive.rows.size() == 1 && tlive.rows[0][1].intValue == 999);
+    auto tvA = h.run("FETCH id, bal FROM tt AS OF " + std::to_string(verA) +
+                     " SORT BY id;");
+    assert(tvA.rows.size() == 2 && tvA.rows[0][1].intValue == 100 &&
+           tvA.rows[1][1].intValue == 200);
+    auto tvB = h.run("FETCH id, bal FROM tt AS OF " + std::to_string(verB) +
+                     " SORT BY id;");
+    assert(tvB.rows.size() == 2 && tvB.rows[0][1].intValue == 999 &&
+           tvB.rows[1][1].intValue == 200);
+    auto tv0 = h.run("FETCH id, bal FROM tt AS OF 0;");
+    assert(tv0.rows.empty());
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");

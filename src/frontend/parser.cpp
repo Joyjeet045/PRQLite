@@ -523,7 +523,15 @@ ASTNodePtr Parser::parseSelect() {
 
     consume(TokenType::FROM, "FROM");
     stmt->table = consume(TokenType::IDENTIFIER, "table name").lexeme;
-    stmt->tableAlias = parseOptionalAlias();
+    if (check(TokenType::AS) && peekAt(1).type == TokenType::OF) {
+        advance();
+        advance();
+        const Token& v = consume(TokenType::INTEGER_LITERAL, "AS OF version");
+        stmt->asOf = true;
+        stmt->asOfVersion = static_cast<unsigned long long>(toInt64(v));
+    } else {
+        stmt->tableAlias = parseOptionalAlias();
+    }
 
     if (match(TokenType::LEFT)) {
         consume(TokenType::JOIN, "LINK");

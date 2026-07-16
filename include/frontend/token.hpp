@@ -40,6 +40,7 @@ enum class TokenType {
     HAVING,
     OVER,
     PARTITION,
+    OF,
     LIMIT,
     OFFSET,
     CASE,

@@ -243,6 +243,21 @@ std::vector<std::pair<RecordID, std::vector<Value>>> ExecutorEngine::gatherBaseR
     return gatherRows(tableId, schema, where);
 }
 
+std::vector<std::pair<RecordID, std::vector<Value>>> ExecutorEngine::sourceRows(
+    parser::SelectStatement& node, const Schema& schema, parser::Expression* where) {
+    if (!node.asOf) {
+        return gatherBaseRows(node.tableId, schema, where);
+    }
+    std::vector<std::pair<RecordID, std::vector<Value>>> rows;
+    for (std::string& bytes : storage_.versions().snapshotAsOf(node.tableId,
+                                                               node.asOfVersion)) {
+        Tuple t = Tuple::deserialize(bytes, schema);
+        if (where != nullptr && !predicateTrue(*where, t)) continue;
+        rows.emplace_back(RecordID{}, t.values());
+    }
+    return rows;
+}
+
 std::vector<std::pair<RecordID, std::vector<Value>>> ExecutorEngine::joinTwo(
     const std::vector<std::pair<RecordID, std::vector<Value>>>& leftRows,
     int leftWidth,
@@ -969,6 +984,7 @@ void ExecutorEngine::visit(parser::InsertStatement& node) {
     std::vector<std::string> names;
     loadSchema(node.tableId, schema, names);
     const std::size_t ncols = schema.size();
+    if (!txnActive()) storage_.versions().discardPending();
 
     const semantic::TableSchema* ts = catalog_.getTableById(node.tableId);
     std::vector<int> targets;
@@ -1047,6 +1063,7 @@ void ExecutorEngine::visit(parser::InsertStatement& node) {
                 idx->add(idx->keyOf(tup.values()), rid);
             }
         }
+        storage_.versions().stageInsert(node.tableId, rid, bytes);
         if (txnActive()) {
             lockOrThrow(rid, /*exclusive=*/true);
             StorageEngine* se = &storage_;
@@ -1065,6 +1082,7 @@ void ExecutorEngine::visit(parser::InsertStatement& node) {
         }
         ++count;
     }
+    if (!txnActive()) storage_.versions().commitPending();
     result_.message = "PUT 0 " + std::to_string(count);
 }
 
@@ -1485,14 +1503,14 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
         if (!node.aggregates.empty() || !node.groupBy.empty() || node.having) {
             std::vector<std::pair<RecordID, std::vector<Value>>> arows;
             if (node.where && hasCorrelatedSubquery(node.where.get())) {
-                auto allRows = gatherBaseRows(node.tableId, schema, nullptr);
+                auto allRows = sourceRows(node, schema, nullptr);
                 for (auto& pr : allRows) {
                     bindCorrelated(node.where.get(), pr.second);
                     Tuple t(pr.second);
                     if (predicateTrue(*node.where, t)) arows.push_back(std::move(pr));
                 }
             } else {
-                arows = gatherBaseRows(node.tableId, schema, node.where.get());
+                arows = sourceRows(node, schema, node.where.get());
             }
             std::vector<int> gcols;
             for (const auto& g : node.groupBy) gcols.push_back(g->columnIndex);
@@ -1566,14 +1584,14 @@ void ExecutorEngine::visit(parser::SelectStatement& node) {
         }
 
         if (node.where && hasCorrelatedSubquery(node.where.get())) {
-            auto allRows = gatherBaseRows(node.tableId, schema, nullptr);
+            auto allRows = sourceRows(node, schema, nullptr);
             for (auto& pr : allRows) {
                 bindCorrelated(node.where.get(), pr.second);
                 Tuple t(pr.second);
                 if (predicateTrue(*node.where, t)) rows.push_back(std::move(pr));
             }
         } else {
-            rows = gatherBaseRows(node.tableId, schema, node.where.get());
+            rows = sourceRows(node, schema, node.where.get());
         }
     }
 
@@ -1643,6 +1661,7 @@ void ExecutorEngine::visit(parser::DeleteStatement& node) {
     loadSchema(node.tableId, schema, names);
     materializeSubqueries(node.where.get());
     const semantic::TableSchema* ts = catalog_.getTableById(node.tableId);
+    if (!txnActive()) storage_.versions().discardPending();
 
     std::vector<index::Index*> tableIndexes = storage_.indexes().forTable(node.tableId);
 
@@ -1693,7 +1712,9 @@ void ExecutorEngine::visit(parser::DeleteStatement& node) {
             });
         }
         storage_.tables().eraseTuple(node.tableId, vrid);
+        storage_.versions().stageDelete(node.tableId, vrid);
     }
+    if (!txnActive()) storage_.versions().commitPending();
     result_.message = "REMOVE " + std::to_string(victims.size());
 }
 
@@ -1703,6 +1724,7 @@ void ExecutorEngine::visit(parser::UpdateStatement& node) {
     loadSchema(node.tableId, schema, names);
     materializeSubqueries(node.where.get());
     const semantic::TableSchema* ts = catalog_.getTableById(node.tableId);
+    if (!txnActive()) storage_.versions().discardPending();
 
     std::vector<index::Index*> tableIndexes = storage_.indexes().forTable(node.tableId);
     std::vector<std::pair<RecordID, std::vector<Value>>> rows;
@@ -1746,6 +1768,8 @@ void ExecutorEngine::visit(parser::UpdateStatement& node) {
                 idx->add(idx->keyOf(newTup.values()), nr);
             }
         }
+        storage_.versions().stageDelete(node.tableId, rid);
+        storage_.versions().stageInsert(node.tableId, nr, newBytes);
         if (txnActive()) {
             StorageEngine* se = &storage_;
             int tid = node.tableId;
@@ -1767,6 +1791,7 @@ void ExecutorEngine::visit(parser::UpdateStatement& node) {
         }
         ++count;
     }
+    if (!txnActive()) storage_.versions().commitPending();
     result_.message = "MODIFY " + std::to_string(count);
 }
 
@@ -1856,6 +1881,7 @@ void ExecutorEngine::visit(parser::TransactionStatement& node) {
             } else {
                 txnMgr_->commit(*currentTxn_);
                 *currentTxn_ = 0;
+                storage_.versions().commitPending();
                 result_.message = "SAVE";
             }
             break;
@@ -1865,6 +1891,7 @@ void ExecutorEngine::visit(parser::TransactionStatement& node) {
             } else {
                 txnMgr_->rollback(*currentTxn_);
                 *currentTxn_ = 0;
+                storage_.versions().discardPending();
                 result_.message = "UNDO";
             }
             break;

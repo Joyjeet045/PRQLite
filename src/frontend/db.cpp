@@ -417,6 +417,12 @@ void DB::run() {
             if (trimmed == "\\q") {
                 break;
             }
+            if (trimmed == "\\v") {
+                std::cout << "version " << storage_->versions().currentVersion()
+                          << "\n";
+                std::cout << primaryPrompt << std::flush;
+                continue;
+            }
             if (trimmed == "\\h") {
                 std::cout << "Relite language (not SQL):\n"
                              "  BUILD RELATION / BUILD INDEX (multi-col) / BUILD VIEW,\n"
@@ -435,7 +441,9 @@ void DB::run() {
                              "  Types: INT/BIGINT, FLOAT, DECIMAL, BOOL, TEXT, VARCHAR(n),\n"
                              "    DATE, TIMESTAMP; AUTO_INCREMENT; FK ON REMOVE CASCADE/SET NULL.\n"
                              "  Transactions: START, SAVE, UNDO.\n"
+                             "  Time travel: FETCH ... FROM t AS OF <version>.\n"
                              "  \\q  quit\n"
+                             "  \\v  show current data version\n"
                              "  \\h  help\n";
             } else {
                 std::cout << "Unknown command: " << trimmed << "\n";
