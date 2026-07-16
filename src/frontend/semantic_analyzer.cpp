@@ -858,6 +858,17 @@ void SemanticAnalyzer::visit(parser::UpdateStatement& node) {
 }
 
 void SemanticAnalyzer::visit(parser::DropStatement& node) {
+    if (node.truncate) {
+        const TableSchema* t = catalog_.getTable(node.name);
+        if (t == nullptr) {
+            throw SemanticError("unknown table '" + node.name + "'");
+        }
+        if (t->isView) {
+            throw SemanticError("cannot truncate view '" + node.name + "'");
+        }
+        node.tableId = t->tableId;
+        return;
+    }
     if (node.isIndex) {
         if (!catalog_.hasIndex(node.name)) {
             throw SemanticError("unknown index '" + node.name + "'");

@@ -18,6 +18,7 @@ public:
     void registerTable(int tableId);
     bool hasTable(int tableId) const;
     void dropTable(int tableId);
+    void truncateTable(int tableId);
 
     RecordID insertTuple(int tableId, const std::string& bytes);
 

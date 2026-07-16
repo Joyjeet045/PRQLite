@@ -471,6 +471,19 @@ void run() {
                c.rows[1][0].intValue == 3 && c.rows[1][1].intValue == 30);
     }
 
+    /* TRUNCATE clears all rows (and resets scan-based AUTO_INCREMENT). */
+    {
+        h.run("BUILD RELATION tr (id INT AUTO_INCREMENT, v INT);");
+        h.run("PUT INTO tr (v) VALUES (10),(20),(30);");
+        assert(h.run("FETCH v FROM tr;").rows.size() == 3);
+        h.run("TRUNCATE RELATION tr;");
+        assert(h.run("FETCH v FROM tr;").rows.empty());
+        h.run("PUT INTO tr (v) VALUES (99);");
+        auto after = h.run("FETCH id, v FROM tr;");
+        assert(after.rows.size() == 1 && after.rows[0][0].intValue == 1 &&
+               after.rows[0][1].intValue == 99);
+    }
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");

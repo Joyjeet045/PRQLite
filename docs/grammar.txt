@@ -104,6 +104,7 @@ Statements
                  | removeStmt
                  | modifyStmt
                  | discardStmt
+                 | truncateStmt
                  | reshapeStmt
                  | txnStmt ) [ ";" ] ;
 
@@ -152,6 +153,8 @@ Statements
   assignment  := ident "=" expression ;
 
   discardStmt := "DISCARD" ( "RELATION" ident | "VIEW" ident | "INDEX" ident ) ;
+
+  truncateStmt := "TRUNCATE" "RELATION" ident ;   ; clear all rows, keep the table
 
   reshapeStmt := "RESHAPE" "RELATION" ident
                  ( "ADD" [ "COLUMN" ] columnDef

@@ -2025,6 +2025,27 @@ void ExecutorEngine::visit(parser::UpdateStatement& node) {
 
 void ExecutorEngine::visit(parser::DropStatement& node) {
     storage_.columns().clear();
+    if (node.truncate) {
+        Schema schema;
+        std::vector<std::string> names;
+        loadSchema(node.tableId, schema, names);
+        if (!txnActive()) storage_.versions().discardPending();
+        std::vector<index::Index*> idxs = storage_.indexes().forTable(node.tableId);
+        SeqScanExecutor scan(&storage_.tables(), node.tableId, schema);
+        scan.init();
+        Tuple t;
+        RecordID rid;
+        while (scan.next(t, rid)) {
+            for (index::Index* idx : idxs) {
+                if (idx->coversRow(t.size())) idx->remove(idx->keyOf(t.values()), rid);
+            }
+            storage_.versions().stageDelete(node.tableId, rid);
+        }
+        storage_.tables().truncateTable(node.tableId);
+        if (!txnActive()) storage_.versions().commitPending();
+        result_.message = "TRUNCATE RELATION";
+        return;
+    }
     if (node.isIndex) {
         storage_.indexes().drop(node.name);
         result_.message = "DISCARD INDEX";

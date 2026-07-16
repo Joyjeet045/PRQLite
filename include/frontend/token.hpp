@@ -21,6 +21,7 @@ enum class TokenType {
     SET,
     DROP,
     ALTER,
+    TRUNCATE,
     ADD,
     COLUMN,
     REFERENCES,

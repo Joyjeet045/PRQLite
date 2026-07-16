@@ -363,6 +363,7 @@ class DropStatement : public ASTNode {
 public:
     bool isIndex = false;
     bool isView = false;
+    bool truncate = false;
     std::string name;
 
     int tableId = -1;

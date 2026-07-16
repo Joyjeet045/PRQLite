@@ -22,6 +22,14 @@ void TableManager::dropTable(int tableId) {
     pages_.erase(tableId);
 }
 
+void TableManager::truncateTable(int tableId) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    auto it = pages_.find(tableId);
+    if (it == pages_.end()) return;
+    for (backend::PageId pid : it->second) pageFree_.erase(pid);
+    it->second.clear();
+}
+
 const std::vector<backend::PageId>& TableManager::pageList(int tableId) const {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto it = pages_.find(tableId);

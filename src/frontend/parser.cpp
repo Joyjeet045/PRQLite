@@ -174,6 +174,15 @@ ASTNodePtr Parser::parseStatement() {
         case TokenType::UPDATE: stmt = parseUpdate(); break;
         case TokenType::DROP: stmt = parseDrop(); break;
         case TokenType::ALTER: stmt = parseAlter(); break;
+        case TokenType::TRUNCATE: {
+            advance();
+            consume(TokenType::TABLE, "RELATION");
+            auto d = std::make_unique<DropStatement>();
+            d->truncate = true;
+            d->name = consume(TokenType::IDENTIFIER, "table name").lexeme;
+            stmt = std::move(d);
+            break;
+        }
         case TokenType::BEGIN:
         case TokenType::COMMIT:
         case TokenType::ROLLBACK: stmt = parseTransaction(); break;
