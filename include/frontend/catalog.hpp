@@ -39,6 +39,7 @@ struct TableSchema {
     std::string name;
     std::vector<ColumnSchema> columns;
     std::vector<ForeignKey> foreignKeys;
+    std::vector<int> primaryKey;
     bool isView = false;
     std::shared_ptr<parser::SelectStatement> viewQuery;
     std::string viewSource;
@@ -73,6 +74,7 @@ public:
                        const std::string& refTable, const std::string& refColumn,
                        ForeignKey::Action onDelete = ForeignKey::Action::Restrict,
                        ForeignKey::Action onUpdate = ForeignKey::Action::Restrict);
+    bool setPrimaryKey(const std::string& table, const std::vector<int>& columns);
 
     bool createIndex(const std::string& indexName, const std::string& table,
                      const std::vector<std::string>& columns);

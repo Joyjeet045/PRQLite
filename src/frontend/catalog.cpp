@@ -164,6 +164,21 @@ bool Catalog::addForeignKey(const std::string& table, int columnIndex,
     return true;
 }
 
+bool Catalog::setPrimaryKey(const std::string& table,
+                            const std::vector<int>& columns) {
+    auto it = tables_.find(table);
+    if (it == tables_.end()) {
+        return false;
+    }
+    it->second.primaryKey = columns;
+    for (int idx : columns) {
+        if (idx >= 0 && idx < static_cast<int>(it->second.columns.size())) {
+            it->second.columns[idx].notNull = true;
+        }
+    }
+    return true;
+}
+
 void Catalog::reset() {
     tables_.clear();
     tableNamesById_.clear();

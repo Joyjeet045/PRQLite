@@ -220,7 +220,18 @@ ASTNodePtr Parser::parseCreate() {
         }
         consume(TokenType::LPAREN, "'('");
         do {
-            stmt->columns.push_back(parseColumnDefinition());
+            if (check(TokenType::PRIMARY)) {
+                advance();
+                consume(TokenType::KEY, "KEY");
+                consume(TokenType::LPAREN, "'('");
+                do {
+                    stmt->primaryKeyColumns.push_back(
+                        consume(TokenType::IDENTIFIER, "column name").lexeme);
+                } while (match(TokenType::COMMA));
+                consume(TokenType::RPAREN, "')'");
+            } else {
+                stmt->columns.push_back(parseColumnDefinition());
+            }
         } while (match(TokenType::COMMA));
         consume(TokenType::RPAREN, "')'");
         return stmt;

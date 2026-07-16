@@ -258,6 +258,7 @@ class CreateStatement : public ASTNode {
 public:
     std::string table;
     std::vector<ColumnDefinition> columns;
+    std::vector<std::string> primaryKeyColumns;
     std::shared_ptr<SelectStatement> asQuery;
 
     int tableId = -1;

@@ -1086,6 +1086,42 @@ void ExecutorEngine::enforceConstraints(const semantic::TableSchema& schema, int
             }
         }
     }
+
+    if (schema.primaryKey.size() >= 2) {
+        bool anyNull = false;
+        for (int ci : schema.primaryKey) {
+            if (ci >= static_cast<int>(row.size()) || row[ci].isNull()) {
+                anyNull = true;
+                break;
+            }
+        }
+        if (!anyNull) {
+            Schema sch = schemaOf(schema);
+            SeqScanExecutor scan(&storage_.tables(), tableId, sch);
+            scan.init();
+            Tuple t;
+            RecordID rid;
+            while (scan.next(t, rid)) {
+                if (excludeRid != nullptr && rid == *excludeRid) continue;
+                bool allEq = true;
+                for (int ci : schema.primaryKey) {
+                    if (ci >= static_cast<int>(t.size())) {
+                        allEq = false;
+                        break;
+                    }
+                    auto c = compareValues(t.at(ci), row[ci]);
+                    if (!c.has_value() || *c != 0) {
+                        allEq = false;
+                        break;
+                    }
+                }
+                if (allEq) {
+                    throw std::runtime_error("PRIMARY KEY constraint failed: " +
+                                             schema.name);
+                }
+            }
+        }
+    }
 }
 
 void ExecutorEngine::visit(parser::CreateStatement& node) {
@@ -1101,6 +1137,19 @@ void ExecutorEngine::visit(parser::CreateStatement& node) {
                 catalog_.createIndex(idxName, ts->name, {col.name});
                 storage_.indexes().create(idxName, node.tableId,
                                           {static_cast<int>(i)});
+            }
+        }
+        if (ts->primaryKey.size() >= 2) {
+            std::string idxName = "__pk_" + ts->name;
+            std::vector<std::string> cols;
+            std::vector<int> idxCols;
+            for (int ci : ts->primaryKey) {
+                cols.push_back(ts->columns[ci].name);
+                idxCols.push_back(ci);
+            }
+            if (!catalog_.hasIndex(idxName)) {
+                catalog_.createIndex(idxName, ts->name, cols);
+                storage_.indexes().create(idxName, node.tableId, idxCols);
             }
         }
     }

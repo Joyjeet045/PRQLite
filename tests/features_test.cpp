@@ -555,6 +555,35 @@ void run() {
         assert(nn2.rows.size() == 1 && nn2.rows[0][0].isNull());
     }
 
+    /* Composite (multi-column) PRIMARY KEY: the tuple must be unique, but
+       individual column values may repeat. */
+    {
+        h.run("BUILD RELATION cpk (a INT, b INT, note TEXT, PRIMARY KEY (a, b));");
+        h.run("PUT INTO cpk VALUES (1,1,'x'),(1,2,'y'),(2,1,'z');");
+        assert(h.run("FETCH note FROM cpk;").rows.size() == 3);
+
+        bool dup = false;
+        try {
+            h.run("PUT INTO cpk VALUES (1,1,'dup');");
+        } catch (const std::exception&) {
+            dup = true;
+        }
+        assert(dup);
+
+        /* A NULL in any PK column is rejected by NOT NULL. */
+        bool nullPk = false;
+        try {
+            h.run("PUT INTO cpk (a, note) VALUES (5, 'q');");
+        } catch (const std::exception&) {
+            nullPk = true;
+        }
+        assert(nullPk);
+
+        /* Equality on the full key is served correctly. */
+        auto one = h.run("FETCH note FROM cpk WHEN a = 1 AND b = 2;");
+        assert(one.rows.size() == 1 && one.rows[0][0].textValue == "y");
+    }
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_feat.db");
     std::remove("relite_test_feat.wal");

@@ -550,6 +550,23 @@ void SemanticAnalyzer::visit(parser::CreateStatement& node) {
     catalog_.createTable(node.table, columns, id);
     node.tableId = id;
 
+    if (!node.primaryKeyColumns.empty()) {
+        const TableSchema* self = catalog_.getTable(node.table);
+        std::vector<int> pk;
+        std::unordered_set<std::string> seenPk;
+        for (const auto& name : node.primaryKeyColumns) {
+            if (!seenPk.insert(name).second) {
+                throw SemanticError("duplicate column '" + name + "' in PRIMARY KEY");
+            }
+            int idx = self != nullptr ? self->columnIndex(name) : -1;
+            if (idx < 0) {
+                throw SemanticError("unknown column '" + name + "' in PRIMARY KEY");
+            }
+            pk.push_back(idx);
+        }
+        catalog_.setPrimaryKey(node.table, pk);
+    }
+
     for (std::size_t i = 0; i < node.columns.size(); ++i) {
         const auto& def = node.columns[i];
         if (def.refTable.empty()) continue;

@@ -202,6 +202,9 @@ void DB::saveCatalog() {
                     << " " << static_cast<int>(fk.onDelete) << " "
                     << static_cast<int>(fk.onUpdate) << "\n";
             }
+            out << ts->primaryKey.size();
+            for (int ci : ts->primaryKey) out << " " << ci;
+            out << "\n";
             const auto& pages = storage_->tables().pageList(ts->tableId);
             out << pages.size();
             for (backend::PageId p : pages) out << " " << p;
@@ -322,6 +325,15 @@ void DB::loadCatalog() {
                 fk.onUpdate = static_cast<semantic::ForeignKey::Action>(actUpd);
             }
             ts.foreignKeys.push_back(fk);
+        }
+        if (ver >= 9) {
+            int npk = 0;
+            in >> npk;
+            for (int p = 0; p < npk; ++p) {
+                int ci = 0;
+                in >> ci;
+                ts.primaryKey.push_back(ci);
+            }
         }
         int npages = 0;
         in >> npages;
