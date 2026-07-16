@@ -9,6 +9,9 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
 # ---------------------------------------------------------------------------
 # Core library: all engine code lives here so both the REPL executable and the
 # test targets can link against it.
@@ -125,3 +128,7 @@ add_test(NAME optimizer_test COMMAND optimizer_test)
 add_executable(column_store_test tests/column_store_test.cpp)
 target_link_libraries(column_store_test PRIVATE relite_core)
 add_test(NAME column_store_test COMMAND column_store_test)
+
+add_executable(concurrency_test tests/concurrency_test.cpp)
+target_link_libraries(concurrency_test PRIVATE relite_core Threads::Threads)
+add_test(NAME concurrency_test COMMAND concurrency_test)

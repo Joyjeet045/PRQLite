@@ -60,7 +60,8 @@ The full keyword vocabulary and SQL-to-Relite mapping are in
 - Write-ahead log with `fsync` durability, group-commit, and checkpointing;
   ARIES-style recovery (analysis → redo → undo) with per-page LSNs and
   idempotent redo, so committed work survives even under a no-force buffer policy
-- Row-level lock manager (two-phase locking) and a transaction manager with undo
+- Row-level lock manager (two-phase locking, shared/exclusive) exercised under
+  real threads, and a transaction manager with undo
 - Snapshot isolation: a transaction reads a stable snapshot (committed state at
   its start plus its own writes); single-table reads are served lock-free from
   the version store
@@ -93,7 +94,7 @@ Type `\h` for help and `\q` to quit.
 
 ## Tests
 
-Sixteen self-contained suites run via CTest:
+Seventeen self-contained suites run via CTest:
 
 ```sh
 ctest --test-dir build --output-on-failure
