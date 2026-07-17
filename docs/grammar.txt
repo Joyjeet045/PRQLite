@@ -252,8 +252,10 @@ Notes / intentional limitations
     other ident "(" ... ")" calls are scalar functions valid anywhere in an
     expression. CASE and CAST are expression forms. An ungrouped aggregate over
     a single table (optionally with a WHEN that is an AND of column-vs-literal
-    comparisons) runs through a push-based vectorized path; EXPLAIN labels it
-    "Aggregate (Vectorized)".
+    comparisons) runs through a push-based vectorized path over a columnar copy
+    of the table. Per-block zone maps (min/max) let a qualifying WHEN skip whole
+    blocks it cannot satisfy (data skipping); EXPLAIN labels it
+    "Aggregate (Vectorized)" or "Aggregate (Vectorized, Data Skipping)".
   * A view (BUILD VIEW) stores its query and is materialized when referenced in
     a FROM; its definition is persisted across restarts. A multi-column BUILD
     INDEX is used for equality on all its columns.

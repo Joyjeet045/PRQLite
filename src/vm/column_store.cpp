@@ -1,8 +1,101 @@
 #include "vm/column_store.hpp"
 
+#include <algorithm>
+
 #include "vm/table_manager.hpp"
 
 namespace db::vm {
+
+namespace {
+
+Value columnValue(const Column& col, std::size_t row) {
+    if (col.isNull[row]) return Value::null();
+    switch (col.type) {
+        case parser::DataType::Int:
+            return Value::makeInt(col.ints[row]);
+        case parser::DataType::Float:
+            return Value::makeDouble(col.doubles[row]);
+        case parser::DataType::Bool:
+            return Value::makeBool(col.bools[row] != 0);
+        default:
+            return Value::makeText(col.texts[row]);
+    }
+}
+
+/* Build one min/max zone map per block of kBlockRows for a column. */
+void buildZones(Column& col, std::size_t rows) {
+    const std::size_t block = TableColumns::kBlockRows;
+    const std::size_t nblocks = (rows + block - 1) / block;
+    col.zones.assign(nblocks, ColumnZone{});
+    for (std::size_t b = 0; b < nblocks; ++b) {
+        std::size_t start = b * block;
+        std::size_t end = std::min(start + block, rows);
+        ColumnZone& z = col.zones[b];
+        for (std::size_t r = start; r < end; ++r) {
+            if (col.isNull[r]) continue;
+            Value v = columnValue(col, r);
+            if (!z.hasNonNull) {
+                z.min = v;
+                z.max = v;
+                z.hasNonNull = true;
+            } else {
+                auto lo = compareValues(v, z.min);
+                auto hi = compareValues(v, z.max);
+                if (lo.has_value() && *lo < 0) z.min = v;
+                if (hi.has_value() && *hi > 0) z.max = v;
+            }
+        }
+    }
+}
+
+/* True if a block's zone map proves no row in it can satisfy the term. */
+bool blockExcludesTerm(const VecPredicate::Term& term, const ColumnZone& z) {
+    if (!z.hasNonNull) return true; /* all-null block: comparison fails everywhere */
+    auto cmpMin = compareValues(term.literal, z.min);
+    auto cmpMax = compareValues(term.literal, z.max);
+    if (!cmpMin.has_value() || !cmpMax.has_value()) return false;
+    int lMin = *cmpMin; /* literal vs min */
+    int lMax = *cmpMax; /* literal vs max */
+    switch (term.op) {
+        case parser::ComparisonOp::Eq:
+            /* need min <= literal <= max */
+            return lMin < 0 || lMax > 0;
+        case parser::ComparisonOp::Lt:
+            /* need a value < literal; impossible if min >= literal */
+            return lMin <= 0;
+        case parser::ComparisonOp::Leq:
+            /* impossible if min > literal */
+            return lMin < 0;
+        case parser::ComparisonOp::Gt:
+            /* need a value > literal; impossible if max <= literal */
+            return lMax >= 0;
+        case parser::ComparisonOp::Geq:
+            /* impossible if max < literal */
+            return lMax > 0;
+        case parser::ComparisonOp::Neq: {
+            /* only skippable if every value equals the literal */
+            auto span = compareValues(z.min, z.max);
+            return span.has_value() && *span == 0 && lMin == 0;
+        }
+    }
+    return false;
+}
+
+bool blockSkippable(const VecPredicate& predicate, const TableColumns& table,
+                    std::size_t blockIdx) {
+    for (const VecPredicate::Term& term : predicate.terms) {
+        if (term.column < 0 ||
+            term.column >= static_cast<int>(table.columns.size())) {
+            continue;
+        }
+        const Column& col = table.columns[term.column];
+        if (blockIdx >= col.zones.size()) continue;
+        if (blockExcludesTerm(term, col.zones[blockIdx])) return true;
+    }
+    return false;
+}
+
+}  // namespace
 
 void ColumnStore::invalidate(int tableId) { cache_.erase(tableId); }
 
@@ -37,26 +130,14 @@ const TableColumns& ColumnStore::getOrBuild(int tableId, const Schema& schema,
         ++tc.rows;
     }
 
+    for (Column& col : tc.columns) buildZones(col, tc.rows);
+
     auto [ins, ok] = cache_.emplace(tableId, std::move(tc));
     (void)ok;
     return ins->second;
 }
 
 namespace {
-
-Value columnValue(const Column& col, std::size_t row) {
-    if (col.isNull[row]) return Value::null();
-    switch (col.type) {
-        case parser::DataType::Int:
-            return Value::makeInt(col.ints[row]);
-        case parser::DataType::Float:
-            return Value::makeDouble(col.doubles[row]);
-        case parser::DataType::Bool:
-            return Value::makeBool(col.bools[row] != 0);
-        default:
-            return Value::makeText(col.texts[row]);
-    }
-}
 
 bool termPasses(const VecPredicate::Term& term, const Column& col, std::size_t row) {
     if (col.isNull[row]) return false;
@@ -78,7 +159,24 @@ bool termPasses(const VecPredicate::Term& term, const Column& col, std::size_t r
 
 std::vector<Value> columnarAggregate(const TableColumns& table,
                                      const std::vector<VecAggregate>& aggregates,
-                                     const std::optional<VecPredicate>& predicate) {
+                                     const std::optional<VecPredicate>& predicate,
+                                     SkipStats* stats) {
+    const std::size_t B = TableColumns::kBlockRows;
+    const std::size_t nblocks = (table.rows + B - 1) / B;
+
+    /* Data skipping: decide once which blocks the predicate can prune. */
+    std::vector<char> skip(nblocks, 0);
+    if (predicate) {
+        for (std::size_t b = 0; b < nblocks; ++b) {
+            skip[b] = blockSkippable(*predicate, table, b) ? 1 : 0;
+        }
+    }
+    if (stats != nullptr) {
+        stats->blocksTotal = nblocks;
+        stats->blocksSkipped = 0;
+        for (char s : skip) stats->blocksSkipped += (s != 0);
+    }
+
     std::vector<Value> out;
     out.reserve(aggregates.size());
 
@@ -95,7 +193,11 @@ std::vector<Value> columnarAggregate(const TableColumns& table,
                 ? &table.columns[agg.column]
                 : nullptr;
 
-        for (std::size_t r = 0; r < table.rows; ++r) {
+        for (std::size_t b = 0; b < nblocks; ++b) {
+            if (skip[b]) continue;
+            std::size_t bstart = b * B;
+            std::size_t bend = std::min(bstart + B, table.rows);
+            for (std::size_t r = bstart; r < bend; ++r) {
             if (predicate) {
                 bool ok = true;
                 for (const VecPredicate::Term& term : predicate->terms) {
@@ -146,6 +248,7 @@ std::vector<Value> columnarAggregate(const TableColumns& table,
                 }
                 case VecAggregate::Kind::CountStar:
                     break;
+            }
             }
         }
 

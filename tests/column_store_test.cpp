@@ -89,6 +89,41 @@ void run() {
                                       std::nullopt);
     assert(near(out2[0].doubleValue, 165.0));
 
+    /* Data skipping: zone maps prune whole blocks a predicate cannot satisfy. */
+    {
+        exec(se, "BUILD RELATION big (id INT);");
+        const int N = 2500;
+        std::string put = "PUT INTO big VALUES ";
+        for (int i = 0; i < N; ++i) {
+            if (i) put += ",";
+            put += "(" + std::to_string(i) + ")";
+        }
+        put += ";";
+        exec(se, put);
+
+        const semantic::TableSchema* bt = semantic::Catalog::instance().getTable("big");
+        vm::Schema bs;
+        for (const auto& c : bt->columns) bs.push_back(c.type);
+        const vm::TableColumns& btc =
+            se.columns().getOrBuild(bt->tableId, bs, se.tables());
+        assert(btc.rows == static_cast<std::size_t>(N));
+        /* 2500 rows / 1024 per block = 3 blocks. */
+        assert(btc.columns[0].zones.size() == 3);
+
+        vm::VecPredicate pred;
+        pred.terms.push_back({0, parser::ComparisonOp::Geq, vm::Value::makeInt(2100)});
+        vm::SkipStats stats;
+        auto cnt = vm::columnarAggregate(
+            btc, {{vm::VecAggregate::Kind::CountStar, -1}}, pred, &stats);
+        assert(cnt[0].intValue == 400);       /* ids 2100..2499 */
+        assert(stats.blocksTotal == 3);
+        assert(stats.blocksSkipped == 2);     /* blocks 0 and 1 pruned */
+
+        /* Result still matches the row engine end to end. */
+        auto viaSql = exec(se, "FETCH COUNT(*) FROM big WHEN id >= 2100;");
+        assert(viaSql.rows[0][0].intValue == 400);
+    }
+
     semantic::Catalog::instance().reset();
     std::remove("relite_test_colstore.db");
     std::cout << "column_store_test passed\n";

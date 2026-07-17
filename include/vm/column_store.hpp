@@ -24,6 +24,12 @@ class TableManager;
  * the row heap and invalidated on write, so it accelerates repeated aggregates
  * over an unchanged table.
  */
+struct ColumnZone {
+    bool hasNonNull = false;
+    Value min;
+    Value max;
+};
+
 struct Column {
     parser::DataType type = parser::DataType::Int;
     std::vector<std::int64_t> ints;
@@ -31,11 +37,24 @@ struct Column {
     std::vector<std::uint8_t> bools;
     std::vector<std::string> texts;
     std::vector<std::uint8_t> isNull;
+    /* One min/max summary per fixed-size block of rows (a "zone map"), used to
+     * skip whole blocks that cannot satisfy a predicate (Delta-style data
+     * skipping). */
+    std::vector<ColumnZone> zones;
 };
 
 struct TableColumns {
     std::vector<Column> columns;
     std::size_t rows = 0;
+
+    /* Rows per zone-map block. */
+    static constexpr std::size_t kBlockRows = 1024;
+};
+
+/* Number of blocks scanned vs. skipped by data skipping, for EXPLAIN and tests. */
+struct SkipStats {
+    std::size_t blocksTotal = 0;
+    std::size_t blocksSkipped = 0;
 };
 
 class ColumnStore {
@@ -51,9 +70,12 @@ private:
 };
 
 /* Columnar aggregate over a built table: one Value per aggregate, matching the
- * row engine's semantics. */
+ * row engine's semantics. When a predicate is present, whole blocks whose zone
+ * maps cannot satisfy it are skipped; if stats is non-null it receives the
+ * block scan/skip counts. */
 std::vector<Value> columnarAggregate(const TableColumns& table,
                                      const std::vector<VecAggregate>& aggregates,
-                                     const std::optional<VecPredicate>& predicate);
+                                     const std::optional<VecPredicate>& predicate,
+                                     SkipStats* stats = nullptr);
 
 }

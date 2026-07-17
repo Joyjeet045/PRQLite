@@ -1634,7 +1634,9 @@ void ExecutorEngine::explainSelect(parser::SelectStatement& node) {
     if (!node.orderBy.empty()) { emit("Sort"); ++depth; }
     if (!node.aggregates.empty() || !node.groupBy.empty()) {
         std::string label = node.groupBy.empty() ? "Aggregate" : "GroupAggregate";
-        if (isVectorizableAggregate(node)) label += " (Vectorized)";
+        if (isVectorizableAggregate(node)) {
+            label += node.where ? " (Vectorized, Data Skipping)" : " (Vectorized)";
+        }
         emit(label);
         ++depth;
     }
